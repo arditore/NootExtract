@@ -200,6 +200,26 @@ impl EvidenceStore {
         Ok(path)
     }
 
+    /// Creates a directory inside a class directory, validating every segment.
+    ///
+    /// Used by extraction, which must reproduce an archive's directory tree.
+    /// The relative path goes through the same traversal and symlink checks as
+    /// an artifact path, so a hostile archive cannot create a directory outside
+    /// the case — or follow a link out of it.
+    pub fn create_subdirectory(&self, class: EvidenceClass, relative: &Path) -> Result<PathBuf> {
+        let path = self.path_for(
+            class,
+            relative.to_str().ok_or_else(|| {
+                Error::Destination(format!("`{}` is not valid Unicode", relative.display()))
+            })?,
+        )?;
+        std::fs::create_dir_all(&path).ctx("create directory", &path)?;
+        // Re-checked after creation: a component could have been replaced by a
+        // link between validation and the call above.
+        ensure_no_symlinked_components(&self.root, &path)?;
+        Ok(path)
+    }
+
     /// Opens a new bulk artifact for writing.
     ///
     /// Both the final path and its `.partial` sibling are reserved up front so
@@ -252,6 +272,30 @@ impl EvidenceStore {
             format: format.to_owned(),
             created_at: Utc::now(),
         })
+    }
+
+    /// Refuses to write into a case directory that belongs to another case.
+    ///
+    /// A case directory *is* the case. Writing evidence labelled `CASE-002` into
+    /// the directory holding `CASE-001` produces a set whose manifests disagree
+    /// about what they document, which is a chain-of-custody defect rather than
+    /// a naming inconvenience — so it fails instead of warning. An empty
+    /// directory adopts whatever case is written first.
+    pub fn ensure_case_consistency(&self, case_id: &str) -> Result<()> {
+        for (path, manifest) in self.load_manifests()? {
+            if manifest.case.case_id != case_id {
+                return Err(Error::Destination(format!(
+                    "`{}` already holds evidence for case `{}` (see {}), but this operation is \
+                     labelled `{case_id}`. Use a separate output directory for each case.",
+                    self.root.display(),
+                    manifest.case.case_id,
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("its manifests")
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Records a file produced inside the store by an external tool.

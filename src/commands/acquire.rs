@@ -86,6 +86,9 @@ pub fn run(context: &CommandContext, args: &AcquireArgs) -> Result<()> {
     let device_id = validate_serial(&args.device_id)?;
 
     let store = EvidenceStore::create(&args.output)?;
+    // Checked before anything is written: a directory belonging to another case
+    // must not gain artifacts labelled with this one.
+    store.ensure_case_consistency(&case_id)?;
     let started_at = Utc::now();
     let acquisition_id = operation_id("acq", started_at);
 

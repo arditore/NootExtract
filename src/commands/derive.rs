@@ -1,4 +1,4 @@
-//! Derived-evidence commands: `convert` and `copy`.
+//! Derived-evidence commands: `convert`, `copy` and `extract`.
 //!
 //! Both follow the same discipline:
 //!
@@ -634,6 +634,226 @@ fn finish(
     print_line(context.mode, "The source artifact was not modified.");
     for warning in warnings {
         print_line(context.mode, &format!("warning: {warning}"));
+    }
+    Ok(())
+}
+
+/// JSON shape of `nootextract extract`.
+#[derive(Debug, Serialize)]
+struct ExtractOutput {
+    case_root: String,
+    manifest: String,
+    hash_list: String,
+    source: String,
+    source_sha256: String,
+    destination: String,
+    files_extracted: usize,
+    directories_created: usize,
+    bytes_written: u64,
+    complete: bool,
+    skipped: Vec<crate::imaging::archive::SkippedEntry>,
+    warnings: Vec<String>,
+}
+
+/// Maximum number of skipped entries reproduced individually in the manifest.
+const MAX_RECORDED_SKIPS: usize = 500;
+
+/// `nootextract extract <PATH>`
+pub fn extract(context: &CommandContext, args: &crate::cli::ExtractArgs) -> Result<()> {
+    let source = resolve_source(&args.path, args.output.as_deref())?;
+
+    let source_probe = probe(&source.path)?;
+    if source_probe.format != ImageFormat::Tar {
+        return Err(Error::Unsupported(format!(
+            "`{}` is {}; extraction handles tar archives, which is what a logical \
+             acquisition produces",
+            source.relative,
+            source_probe.describe()
+        )));
+    }
+
+    let (source_digests, mut warnings) = verify_source(context, &source, args.sha512)?;
+
+    let base_name = derived_base_name(args.name.as_deref(), &source.path)?;
+    let options = crate::imaging::archive::ExtractionOptions {
+        with_sha512: args.sha512,
+        max_entries: args
+            .max_entries
+            .unwrap_or(crate::imaging::archive::DEFAULT_MAX_ENTRIES),
+        max_total_bytes: match &args.max_total_size {
+            Some(value) => parse_size(value)?,
+            None => crate::imaging::archive::DEFAULT_MAX_TOTAL_BYTES,
+        },
+    };
+
+    let started_at = Utc::now();
+    let started_id = operation_id("ext", started_at);
+
+    let mut progress = BarProgress::new(context.mode, "extracting");
+    let result = {
+        let progress = &mut progress;
+        crate::imaging::archive::extract_tar(
+            &source.store,
+            &source.path,
+            &base_name,
+            options,
+            &context.cancel,
+            progress,
+        )?
+    };
+
+    if !result.skipped.is_empty() {
+        warnings.push(format!(
+            "{} archive entr{} not extracted; each is listed in this manifest with its \
+             reason, so the shortfall is documented rather than silent",
+            result.skipped.len(),
+            if result.skipped.len() == 1 {
+                "y was"
+            } else {
+                "ies were"
+            }
+        ));
+    }
+    for entry in result.skipped.iter().take(MAX_RECORDED_SKIPS) {
+        warnings.push(format!("skipped `{}`: {}", entry.path, entry.reason));
+    }
+    if result.skipped.len() > MAX_RECORDED_SKIPS {
+        warnings.push(format!(
+            "... {} further skipped entries were not listed individually",
+            result.skipped.len() - MAX_RECORDED_SKIPS
+        ));
+    }
+    if !result.complete() {
+        warnings.push(
+            "extraction stopped at a configured limit; the working copy does not represent \
+             the whole archive. Raise --max-entries or --max-total-size to extract it fully."
+                .to_owned(),
+        );
+    }
+    warnings.push(
+        "extracted files carry host filesystem metadata, not the device's; the archive in \
+         `original/` remains the authoritative record of ownership, mode and timestamps"
+            .to_owned(),
+    );
+
+    let fully_extracted = result.complete();
+    let artifacts: Vec<FinishedArtifact> = result
+        .files
+        .into_iter()
+        .map(|artifact| artifact.derived_from(source.relative.clone()))
+        .collect();
+
+    let mut parameters = std::collections::BTreeMap::new();
+    parameters.insert("destination".to_owned(), format!("working/{base_name}"));
+    parameters.insert("max_entries".to_owned(), options.max_entries.to_string());
+    parameters.insert(
+        "max_total_bytes".to_owned(),
+        options.max_total_bytes.to_string(),
+    );
+    parameters.insert(
+        "directories_created".to_owned(),
+        result.directories.to_string(),
+    );
+    parameters.insert(
+        "entries_skipped".to_owned(),
+        result.skipped.len().to_string(),
+    );
+    parameters.insert("complete".to_owned(), fully_extracted.to_string());
+
+    let case = derived_case_record(
+        args.case_id.as_deref(),
+        args.evidence_id.as_deref(),
+        &source,
+        &base_name,
+        None,
+    )?;
+
+    let manifest = build_derived_manifest(
+        case,
+        started_id,
+        "archive-extraction".to_owned(),
+        format!(
+            "Extraction of `{}` into `working/{base_name}/`",
+            source.relative
+        ),
+        &source,
+        started_at,
+        parameters,
+        &artifacts,
+        warnings.clone(),
+    );
+
+    let outputs = source.store.write_manifest(&manifest)?;
+    info!(
+        manifest = %outputs.manifest_path.display(),
+        files = artifacts.len(),
+        skipped = result.skipped.len(),
+        "archive extracted"
+    );
+
+    if context.mode.json {
+        return print_json(&ExtractOutput {
+            case_root: source.store.root().display().to_string(),
+            manifest: outputs.manifest_path.display().to_string(),
+            hash_list: outputs.hash_list_path.display().to_string(),
+            source: source.relative.clone(),
+            source_sha256: source_digests.sha256.clone(),
+            destination: format!("working/{base_name}"),
+            files_extracted: artifacts.len(),
+            directories_created: result.directories,
+            bytes_written: result.total_bytes,
+            complete: fully_extracted,
+            skipped: result.skipped,
+            warnings,
+        });
+    }
+
+    // A per-file table would be unreadable for a real acquisition, so the
+    // human view summarizes and points at the manifest for the detail.
+    let rows = vec![
+        vec!["source".to_owned(), source.relative.clone()],
+        vec!["destination".to_owned(), format!("working/{base_name}")],
+        vec!["files extracted".to_owned(), artifacts.len().to_string()],
+        vec![
+            "directories created".to_owned(),
+            result.directories.to_string(),
+        ],
+        vec!["bytes written".to_owned(), format_bytes(result.total_bytes)],
+        vec![
+            "entries skipped".to_owned(),
+            result.skipped.len().to_string(),
+        ],
+        vec![
+            "archive fully extracted".to_owned(),
+            if fully_extracted { "yes" } else { "NO" }.to_owned(),
+        ],
+    ];
+    print_table(context.mode, &["FIELD", "VALUE"], &rows);
+
+    print_line(
+        context.mode,
+        &format!("\nmanifest:  {}", outputs.manifest_path.display()),
+    );
+    print_line(
+        context.mode,
+        &format!("hash list: {}", outputs.hash_list_path.display()),
+    );
+    print_line(
+        context.mode,
+        "Every extracted file is recorded in the manifest, so `verify` accounts for all of \
+         them. The source archive was not modified.",
+    );
+    for warning in warnings.iter().take(12) {
+        print_line(context.mode, &format!("warning: {warning}"));
+    }
+    if warnings.len() > 12 {
+        print_line(
+            context.mode,
+            &format!(
+                "... {} further warnings are recorded in the manifest",
+                warnings.len() - 12
+            ),
+        );
     }
     Ok(())
 }

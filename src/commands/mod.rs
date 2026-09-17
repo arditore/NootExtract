@@ -54,6 +54,7 @@ pub fn dispatch(cli: Cli, cancel: CancellationToken) -> Result<()> {
         Command::Manifest(args) => evidence::manifest(&context, &args),
         Command::Convert(args) => derive::convert(&context, &args),
         Command::Copy(args) => derive::copy(&context, &args),
+        Command::Extract(args) => derive::extract(&context, &args),
     }
 }
 

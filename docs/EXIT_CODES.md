@@ -38,6 +38,9 @@ manifest, and a post-write verification failure all produce it.
 An occupied destination is a destination problem, not a transfer failure, and the
 code reflects that rather than reporting the more generic error.
 
+**6 (destination)** also covers writing into a case directory that already holds
+evidence for a different case, which is refused rather than merged.
+
 **9 (unsupported)** is how a limitation is reported. An unprivileged ADB shell
 blocking physical acquisition, a device without `tar`, or a path the shell cannot
 read all produce it. It never indicates that a protection mechanism should be

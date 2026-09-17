@@ -224,12 +224,18 @@ fn a_logical_acquisition_produces_a_hashed_and_manifested_artifact() {
     assert_eq!(result["status"], "completed");
     let artifact = &result["artifacts"][0];
     assert_eq!(artifact["path"], "original/EVIDENCE-001-logical.tar");
-    assert_eq!(artifact["size_bytes"], 65_536);
     assert_eq!(artifact["complete"], true);
 
     let image = fixture.original("EVIDENCE-001-logical.tar");
     assert!(image.is_file());
-    assert_eq!(std::fs::metadata(&image).unwrap().len(), 65_536);
+    // The recorded size must be the size on disk. The archive is larger than
+    // the payload it carries, because tar adds a header per entry.
+    let on_disk = std::fs::metadata(&image).unwrap().len();
+    assert_eq!(artifact["size_bytes"], on_disk);
+    assert!(
+        on_disk >= 65_536,
+        "archive smaller than its payload: {on_disk}"
+    );
     // No partial file may survive a completed transfer.
     assert!(
         !fixture
@@ -275,7 +281,10 @@ fn the_manifest_records_everything_the_schema_requires() {
     assert_eq!(artifact["classification"], "original");
     assert_eq!(artifact["role"], "logical-archive");
     assert_eq!(artifact["format"], "tar");
-    assert_eq!(artifact["size_bytes"], 8192);
+    let on_disk = std::fs::metadata(fixture.original("EVIDENCE-001-logical.tar"))
+        .unwrap()
+        .len();
+    assert_eq!(artifact["size_bytes"], on_disk);
     assert_eq!(artifact["hashes"]["sha256"].as_str().unwrap().len(), 64);
 
     // The remote command is recorded verbatim for reproducibility.
@@ -487,7 +496,12 @@ fn an_interrupted_transfer_preserves_partial_data_and_fails() {
     // The partial data is preserved under an unambiguous name.
     let partial = fixture.original("EVIDENCE-001-logical.tar.partial");
     assert!(partial.is_file(), "partial data must be preserved");
-    assert_eq!(std::fs::metadata(&partial).unwrap().len(), 16_384);
+    let partial_len = std::fs::metadata(&partial).unwrap().len();
+    assert!(partial_len > 0, "the partial artifact is empty");
+    assert!(
+        partial_len < 32_768,
+        "a truncated transfer should hold less than the full payload: {partial_len}"
+    );
     // The final name stays free, so nothing can be mistaken for a full image.
     assert!(!fixture.original("EVIDENCE-001-logical.tar").exists());
 
@@ -1037,4 +1051,205 @@ fn acquisition_refuses_a_destination_that_is_a_file() {
         std::fs::read(fixture.case_root()).unwrap(),
         b"not a directory"
     );
+}
+
+#[test]
+fn a_logical_acquisition_produces_a_real_tar_archive() {
+    let fixture = Fixture::new("authorized").with_payload(20_480);
+    assert_eq!(code(&fixture.acquire(&[])), Some(0));
+
+    // Identified by signature, not by the file name the tool chose.
+    let output = fixture
+        .command()
+        .args(["hash", "--json"])
+        .arg(fixture.original("EVIDENCE-001-logical.tar"))
+        .output()
+        .unwrap();
+    let value = json(&output);
+    assert_eq!(value["format"], "tar");
+    assert_eq!(value["format_evidence"], "signature");
+}
+
+#[test]
+fn extraction_accounts_for_every_file_it_writes() {
+    // The point of the command: files extracted by hand are unaccounted for and
+    // show up as EXTRA. Extracted through the tool, they are manifested.
+    let fixture = Fixture::new("authorized").with_payload(20_480);
+    assert_eq!(code(&fixture.acquire(&[])), Some(0));
+
+    let output = fixture
+        .command()
+        .arg("extract")
+        .arg(fixture.original("EVIDENCE-001-logical.tar"))
+        .args(["--json"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        code(&output),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let result = json(&output);
+    assert_eq!(result["files_extracted"], 5);
+    assert_eq!(result["directories_created"], 1);
+    assert_eq!(result["bytes_written"], 20_480);
+    assert_eq!(result["complete"], true);
+    assert_eq!(result["source"], "original/EVIDENCE-001-logical.tar");
+    assert!(result["skipped"].as_array().unwrap().is_empty());
+
+    let extracted = fixture
+        .case_root()
+        .join("working")
+        .join("EVIDENCE-001-logical")
+        .join("DCIM");
+    assert!(extracted.is_dir());
+    assert_eq!(list_dir(&extracted).len(), 5);
+
+    // Nothing is EXTRA, because everything written was recorded.
+    let verify = fixture.verify(&["--json"]);
+    assert_eq!(code(&verify), Some(0));
+    let report = json(&verify);
+    assert_eq!(report["counts"]["EXTRA"], 0);
+    assert_eq!(report["counts"]["MATCH"], 6);
+    assert_eq!(report["counts"]["MISMATCH"], 0);
+}
+
+#[test]
+fn extraction_records_each_file_with_its_own_digest() {
+    let fixture = Fixture::new("authorized").with_payload(8192);
+    assert_eq!(code(&fixture.acquire(&[])), Some(0));
+    assert_eq!(
+        code(
+            &fixture
+                .command()
+                .arg("extract")
+                .arg(fixture.original("EVIDENCE-001-logical.tar"))
+                .output()
+                .unwrap()
+        ),
+        Some(0)
+    );
+
+    let manifest = list_dir(&fixture.case_root().join("manifests"))
+        .iter()
+        .map(|name| {
+            let text =
+                std::fs::read_to_string(fixture.case_root().join("manifests").join(name)).unwrap();
+            serde_json::from_str::<serde_json::Value>(&text).unwrap()
+        })
+        .find(|m| m["operation"]["method"] == "archive-extraction")
+        .expect("an extraction manifest must exist");
+
+    let artifacts = manifest["artifacts"].as_array().unwrap();
+    assert_eq!(artifacts.len(), 2);
+    for artifact in artifacts {
+        assert_eq!(artifact["role"], "extracted-file");
+        assert_eq!(artifact["classification"], "working");
+        assert_eq!(artifact["hashes"]["sha256"].as_str().unwrap().len(), 64);
+        assert_eq!(
+            artifact["derived_from"],
+            "original/EVIDENCE-001-logical.tar"
+        );
+    }
+    assert_eq!(manifest["case"]["evidence_id"], "EVIDENCE-001");
+}
+
+#[test]
+fn extraction_refuses_a_source_that_is_not_an_archive() {
+    let fixture = Fixture::new("root").with_payload(8192);
+    assert_eq!(
+        code(&fixture.acquire(&[
+            "--method",
+            "adb-physical-dd",
+            "--source",
+            "/dev/block/by-name/userdata",
+        ])),
+        Some(0)
+    );
+
+    let output = fixture
+        .command()
+        .arg("extract")
+        .arg(fixture.original("EVIDENCE-001-userdata.raw"))
+        .output()
+        .unwrap();
+
+    assert_eq!(code(&output), Some(9));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("tar archives"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn extraction_refuses_an_archive_that_changed_since_acquisition() {
+    let fixture = Fixture::new("authorized").with_payload(8192);
+    assert_eq!(code(&fixture.acquire(&[])), Some(0));
+
+    let archive = fixture.original("EVIDENCE-001-logical.tar");
+    let mut bytes = std::fs::read(&archive).unwrap();
+    bytes[600] ^= 0xff;
+    std::fs::write(&archive, &bytes).unwrap();
+
+    let output = fixture
+        .command()
+        .arg("extract")
+        .arg(&archive)
+        .output()
+        .unwrap();
+
+    assert_eq!(code(&output), Some(5));
+    assert!(list_dir(&fixture.case_root().join("working")).is_empty());
+}
+
+#[test]
+fn extraction_limits_are_reported_rather_than_silently_applied() {
+    let fixture = Fixture::new("authorized").with_payload(20_480);
+    assert_eq!(code(&fixture.acquire(&[])), Some(0));
+
+    let output = fixture
+        .command()
+        .arg("extract")
+        .arg(fixture.original("EVIDENCE-001-logical.tar"))
+        .args(["--max-entries", "2", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&output), Some(0));
+
+    let result = json(&output);
+    assert_eq!(result["complete"], false);
+    let warnings = result["warnings"].to_string();
+    assert!(
+        warnings.contains("stopped at a configured limit"),
+        "{warnings}"
+    );
+
+    // A partial extraction still leaves a case that verifies.
+    assert_eq!(code(&fixture.verify(&[])), Some(0));
+}
+
+#[test]
+fn acquiring_into_another_cases_directory_is_refused() {
+    let fixture = Fixture::new("authorized").with_payload(4096);
+    assert_eq!(code(&fixture.acquire(&[])), Some(0));
+
+    let output = fixture
+        .command()
+        .arg("acquire")
+        .arg(FAKE_SERIAL)
+        .args(["--case-id", "CASE-OTHER", "--evidence-id", "EVIDENCE-002"])
+        .arg("--output")
+        .arg(fixture.case_root())
+        .output()
+        .unwrap();
+
+    assert_eq!(code(&output), Some(6));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("CASE-001"), "{stderr}");
+    assert!(stderr.contains("separate output directory"), "{stderr}");
+    // The existing case is untouched.
+    assert_eq!(list_dir(&fixture.case_root().join("manifests")).len(), 1);
 }

@@ -42,6 +42,7 @@ what first compiled the crate on the declared minimum toolchain.
 | `tests/acquisition.rs` | End-to-end | Full acquire → verify → convert → copy workflows against the scripted device |
 | `tests/safety.rs` | Filesystem safety | Overwrite refusal, traversal, symlinks, corruption detection, overflow, hostile manifests |
 | `scripts/validate_evidence.py` | Independent cross-check | Re-implements the manifest rules and digests in Python, sharing no code with the Rust implementation |
+| `src/bin/fake_adb.rs` | Scripted device | Emits a genuine tar archive for logical acquisition, so format identification and extraction are exercised against a real container rather than arbitrary bytes |
 | `scripts/e2e-check.sh` | Workflow check | Drives the release binary through acquire → convert → copy → verify, then cross-checks with the Python validator, coreutils `sha256sum`, segment reassembly and a tampering probe |
 
 ## 🎭 The scripted device
@@ -96,6 +97,16 @@ Automated, on every run:
 - A conversion source that no longer matches its manifest is refused (exit 5).
 - Manifest timestamps are emitted at fixed nanosecond precision and the event log
   reads in chronological order.
+- Archive extraction refuses entries with `..`, absolute paths and control
+  characters, and never creates symbolic links, hard links or device nodes. The
+  hostile archives used for this are assembled from raw USTAR headers, because
+  `tar::Builder` refuses to write such names — a test built through the safe API
+  would never reach the refusal path.
+- Every extracted file is manifested, so verification reports no `EXTRA` after an
+  extraction.
+- A metadata command that stops responding is terminated by the watchdog rather
+  than blocking indefinitely; streaming is deliberately exempt.
+- Acquiring into a case directory that already holds another case is refused.
 
 Established by the first CI run, on real runners rather than by construction:
 

@@ -143,7 +143,10 @@ fn exec_out(scenario: &str, command: &str) -> ExitCode {
     if command.starts_with("cat /sys/class/block/") {
         return ExitCode::from(1);
     }
-    if command.starts_with("tar -c -f - ") || command.starts_with("dd if=") {
+    if command.starts_with("tar -c -f - ") {
+        return emit_tar(scenario);
+    }
+    if command.starts_with("dd if=") {
         return emit_payload(scenario);
     }
 
@@ -178,6 +181,75 @@ fn emit_payload(scenario: &str) -> ExitCode {
     if stdout.flush().is_err() {
         return ExitCode::from(1);
     }
+
+    match scenario {
+        "fail-mid" => {
+            eprintln!("tar: /sdcard/locked: Permission denied");
+            eprintln!("tar: error exit delayed from previous errors");
+            ExitCode::from(2)
+        }
+        "stderr-noise" => {
+            eprintln!("tar: removing leading '/' from member names");
+            ExitCode::SUCCESS
+        }
+        _ => ExitCode::SUCCESS,
+    }
+}
+
+/// Writes a real tar archive, so that consumers of a logical acquisition —
+/// format identification and the extractor — are exercised against a genuine
+/// container rather than arbitrary bytes.
+fn emit_tar(scenario: &str) -> ExitCode {
+    let total = payload_bytes();
+    let emit = if scenario == "fail-mid" {
+        total.saturating_div(2)
+    } else {
+        total
+    };
+
+    let stdout = std::io::stdout().lock();
+    let mut builder = tar::Builder::new(stdout);
+
+    let mut directory = tar::Header::new_gnu();
+    directory.set_size(0);
+    directory.set_mode(0o755);
+    directory.set_entry_type(tar::EntryType::Directory);
+    directory.set_cksum();
+    if builder
+        .append_data(&mut directory, "DCIM/", &[][..])
+        .is_err()
+    {
+        return ExitCode::from(1);
+    }
+
+    // Deterministic content, so digests are reproducible across runs.
+    let block: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+    let mut written: u64 = 0;
+    let mut index = 0usize;
+    while written < emit {
+        let remaining = usize::try_from(emit - written).unwrap_or(block.len());
+        let take = remaining.min(block.len());
+        let Some(content) = block.get(..take) else {
+            break;
+        };
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(take as u64);
+        header.set_mode(0o644);
+        header.set_mtime(0);
+        header.set_cksum();
+        let name = format!("DCIM/IMG_{index:04}.jpg");
+        if builder.append_data(&mut header, &name, content).is_err() {
+            return ExitCode::from(1);
+        }
+        written += take as u64;
+        index += 1;
+    }
+
+    if builder.finish().is_err() {
+        return ExitCode::from(1);
+    }
+    drop(builder);
 
     match scenario {
         "fail-mid" => {

@@ -17,7 +17,7 @@
 [![CI](https://img.shields.io/badge/CI-linux%20%7C%20macos%20%7C%20windows-2b4c6f)](.github/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-2b4c6f)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-4a90a4)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-277%20passing-3f7f6f)](docs/TESTING.md)
+[![Tests](https://img.shields.io/badge/tests-301%20passing-3f7f6f)](docs/TESTING.md)
 [![unsafe](https://img.shields.io/badge/unsafe-forbidden-5a6b7c)](docs/SECURITY.md)
 
 </div>
@@ -146,6 +146,7 @@ MATCH   original/EVIDENCE-001-logical.tar  original  -
 | `nootextract manifest <PATH>` | Inspect and validate a manifest, or list a case's manifests |
 | `nootextract convert <PATH>` | Produce a derived image in another format |
 | `nootextract copy <PATH>` | Produce a verified working copy |
+| `nootextract extract <PATH>` | Unpack a logical archive into verified, manifested files |
 | `nootextract methods` | List acquisition backends and their requirements |
 
 Global options: `--help`, `--version`, `--verbose`, `--quiet`, `--json`,
@@ -175,7 +176,7 @@ rather than attempting to change it.
 CASE-001/
     original/    🧊  acquired evidence — never modified, overwritten or deleted
     derived/     🔄  conversions produced from originals
-    working/     🐟  verified copies intended for analysis tools
+    working/     🐟  verified copies and extracted files, for analysis tools
     manifests/   📜  one immutable manifest per operation
     hashes/      🔐  sha256sum-compatible hash lists
     logs/        📓  structured JSON Lines logs

@@ -64,6 +64,7 @@ Each one is present for a stated reason.
 | `indicatif` | Progress reporting for long transfers |
 | `ctrlc` | SIGINT handling, so an interrupt ends deterministically |
 | `fs4` | Free-space interrogation for the pre-acquisition check |
+| `tar` | Reading logical acquisition archives during extraction. Entry paths are validated by this crate, not by the library |
 
 Dev-only: `tempfile`, `assert_cmd`, `predicates`.
 

@@ -110,6 +110,9 @@ pub enum Command {
     /// Create a verified working copy of an artifact for analysis.
     Copy(CopyArgs),
 
+    /// Extract a logical acquisition archive into verified working files.
+    Extract(Box<ExtractArgs>),
+
     /// List the acquisition methods this build provides.
     Methods,
 }
@@ -259,6 +262,40 @@ pub struct ConvertArgs {
     /// Path to libewf's verification tool.
     #[arg(long, value_name = "PATH", default_value = DEFAULT_VERIFY_PROGRAM)]
     pub ewfverify_path: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ExtractArgs {
+    /// Archive to extract. Must be inside the case directory.
+    pub path: PathBuf,
+
+    /// Case directory. Defaults to the case containing the archive.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: Option<PathBuf>,
+
+    /// Directory name under `working/`. Defaults to the archive's stem.
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+
+    /// Case identifier recorded in the derived manifest.
+    #[arg(long, value_name = "ID")]
+    pub case_id: Option<String>,
+
+    /// Evidence identifier recorded in the derived manifest.
+    #[arg(long, value_name = "ID")]
+    pub evidence_id: Option<String>,
+
+    /// Also compute SHA-512 for every extracted file.
+    #[arg(long)]
+    pub sha512: bool,
+
+    /// Maximum number of archive entries to extract.
+    #[arg(long, value_name = "N")]
+    pub max_entries: Option<usize>,
+
+    /// Maximum total size to write, for example 8G.
+    #[arg(long, value_name = "SIZE")]
+    pub max_total_size: Option<String>,
 }
 
 #[derive(Debug, Args)]

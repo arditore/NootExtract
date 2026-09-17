@@ -12,7 +12,7 @@ src/
         device.rs       devices, info, methods
         acquire.rs      acquisition orchestration
         evidence.rs     hash, verify, manifest
-        derive.rs       convert, copy
+        derive.rs       convert, copy, extract
     acquisition/        backends that obtain bytes from a source
         backend.rs      the AcquisitionBackend trait and its context types
         adb.rs          shared streaming, status determination, post-write check
@@ -22,8 +22,9 @@ src/
         store.rs        EvidenceStore, ArtifactWriter, write discipline
         manifest.rs     schema 1.0
         verify.rs       MATCH / MISMATCH / MISSING / EXTRA
-    imaging/            format identification and conversion
+    imaging/            format identification, conversion and extraction
         format.rs       signature-based identification
+        archive.rs      safe tar extraction into manifested files
         segmented.rs    raw -> segmented raw
         ewf.rs          raw -> E01 via libewf
     adb/                process execution and ADB protocol handling

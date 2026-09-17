@@ -17,7 +17,8 @@
 use std::fmt;
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::error::{Error, Result};
@@ -31,6 +32,82 @@ pub const STREAM_STDERR_LIMIT: usize = 256 * 1024;
 pub const STREAM_CHUNK_SIZE: usize = 1024 * 1024;
 /// Interval at which a cancelled child is re-checked for termination.
 const KILL_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Wall-clock limit for a metadata command.
+///
+/// Metadata commands are short by nature: listing transports, reading system
+/// properties, sizing a partition. A device that stops responding mid-command
+/// leaves the pipe open without ever producing EOF, which would otherwise block
+/// the tool indefinitely — not a hypothetical, since a handset can be unplugged,
+/// suspend, or hang at any moment. Bulk transfers deliberately have no such
+/// limit: a multi-hour image is legitimate, and cancellation covers that case.
+pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Kills a child process if it is still running when the deadline passes.
+///
+/// The child is shared with a watchdog thread so the timeout covers the whole
+/// command — including a blocking read on a pipe that never reaches EOF — rather
+/// than only the final `wait`.
+#[derive(Debug)]
+struct Watchdog {
+    child: Arc<Mutex<Option<Child>>>,
+    timed_out: Arc<AtomicBool>,
+    finished: Arc<AtomicBool>,
+}
+
+impl Watchdog {
+    /// Arms a watchdog over `child`, returning the shared handle.
+    fn arm(child: Child, timeout: Option<Duration>) -> Self {
+        let shared = Arc::new(Mutex::new(Some(child)));
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+
+        if let Some(timeout) = timeout {
+            let child = Arc::clone(&shared);
+            let timed_out = Arc::clone(&timed_out);
+            let finished = Arc::clone(&finished);
+            std::thread::spawn(move || {
+                let deadline = std::time::Instant::now() + timeout;
+                while std::time::Instant::now() < deadline {
+                    if finished.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    std::thread::sleep(KILL_POLL_INTERVAL);
+                }
+                if finished.load(Ordering::SeqCst) {
+                    return;
+                }
+                timed_out.store(true, Ordering::SeqCst);
+                // Killing closes the pipes, which unblocks the reader.
+                if let Ok(mut guard) = child.lock()
+                    && let Some(child) = guard.as_mut()
+                {
+                    let _ = child.kill();
+                }
+            });
+        }
+
+        Self {
+            child: shared,
+            timed_out,
+            finished,
+        }
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out.load(Ordering::SeqCst)
+    }
+
+    /// Signals the watchdog to stand down.
+    fn disarm(&self) {
+        self.finished.store(true, Ordering::SeqCst);
+    }
+
+    fn with_child<T>(&self, action: impl FnOnce(&mut Child) -> T) -> Option<T> {
+        let mut guard = self.child.lock().ok()?;
+        guard.as_mut().map(action)
+    }
+}
 
 /// Captured result of a short-lived command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,16 +176,34 @@ pub trait CommandRunner: fmt::Debug + Send + Sync {
 }
 
 /// [`CommandRunner`] backed by real operating-system processes.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct SystemRunner;
+#[derive(Debug, Clone, Copy)]
+pub struct SystemRunner {
+    /// Wall-clock limit applied to metadata commands. Streams are unlimited.
+    timeout: Option<Duration>,
+}
+
+impl Default for SystemRunner {
+    fn default() -> Self {
+        Self {
+            timeout: Some(DEFAULT_COMMAND_TIMEOUT),
+        }
+    }
+}
 
 impl SystemRunner {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Overrides the metadata-command timeout. `None` disables it.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     pub fn shared() -> Arc<dyn CommandRunner> {
-        Arc::new(Self)
+        Arc::new(Self::default())
     }
 
     fn spawn(program: &str, args: &[String]) -> Result<Child> {
@@ -180,14 +275,27 @@ impl CommandRunner for SystemRunner {
             None => Ok((Vec::new(), false)),
         });
 
-        let stdout_result = match child.stdout.take() {
+        let stdout_pipe = child.stdout.take();
+        let watchdog = Watchdog::arm(child, self.timeout);
+
+        let stdout_result = match stdout_pipe {
             Some(pipe) => read_capped(pipe, output_limit),
             None => Ok((Vec::new(), false)),
         };
 
-        let status = child
-            .wait()
+        let status = watchdog
+            .with_child(std::process::Child::wait)
+            .transpose()
             .map_err(|source| Error::io("wait for", program, source))?;
+        watchdog.disarm();
+
+        if watchdog.timed_out() {
+            return Err(Error::Device(format!(
+                "`{program}` did not respond within {} seconds and was terminated; the device \
+                 may have been disconnected or stopped responding",
+                self.timeout.map_or(0, |t| t.as_secs())
+            )));
+        }
 
         let (stdout, stdout_truncated) =
             stdout_result.map_err(|source| Error::io("read stdout of", program, source))?;
@@ -197,7 +305,7 @@ impl CommandRunner for SystemRunner {
             .map_err(|source| Error::io("read stderr of", program, source))?;
 
         Ok(CommandOutput {
-            exit_code: status.code(),
+            exit_code: status.and_then(|status| status.code()),
             stdout,
             stderr,
             truncated: stdout_truncated || stderr_truncated,
@@ -365,6 +473,86 @@ mod tests {
             .run("/bin/echo", &[payload.to_owned()], DEFAULT_OUTPUT_LIMIT)
             .unwrap();
         assert_eq!(output.stdout_text().trim_end(), payload);
+    }
+
+    /// A program that sleeps far longer than any timeout under test.
+    ///
+    /// PowerShell is used on Windows rather than `cmd /C timeout`, because a
+    /// coreutils `timeout` earlier on PATH shadows the Windows one and rejects
+    /// its arguments.
+    fn sleeping_program(seconds: u32) -> (String, Vec<String>) {
+        if cfg!(windows) {
+            (
+                "powershell".to_owned(),
+                vec![
+                    "-NoProfile".to_owned(),
+                    "-Command".to_owned(),
+                    format!("Start-Sleep -Seconds {seconds}"),
+                ],
+            )
+        } else {
+            ("sleep".to_owned(), vec![seconds.to_string()])
+        }
+    }
+
+    #[test]
+    fn an_unresponsive_command_is_terminated_by_the_timeout() {
+        // Without a watchdog this blocks forever: the child holds the pipe open
+        // without producing EOF, so the reader never returns.
+        let (program, args) = sleeping_program(60);
+        let started = std::time::Instant::now();
+
+        let err = SystemRunner::new()
+            .with_timeout(Some(Duration::from_millis(1500)))
+            .run(&program, &args, DEFAULT_OUTPUT_LIMIT)
+            .unwrap_err();
+
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "the timeout did not fire; waited {elapsed:?}"
+        );
+        assert!(matches!(err, Error::Device(_)), "{err:?}");
+        assert!(err.to_string().contains("did not respond"), "{err}");
+        assert_eq!(err.exit_code().as_i32(), 3);
+    }
+
+    #[test]
+    fn a_prompt_command_is_unaffected_by_the_timeout() {
+        let (program, args) = echo_program();
+        let output = SystemRunner::new()
+            .with_timeout(Some(Duration::from_secs(30)))
+            .run(&program, &args, DEFAULT_OUTPUT_LIMIT)
+            .unwrap();
+        assert_eq!(output.exit_code, Some(0));
+        assert!(output.stdout_text().contains("hello"));
+    }
+
+    #[test]
+    fn the_timeout_can_be_disabled_for_long_operations() {
+        let (program, args) = echo_program();
+        let output = SystemRunner::new()
+            .with_timeout(None)
+            .run(&program, &args, DEFAULT_OUTPUT_LIMIT)
+            .unwrap();
+        assert_eq!(output.exit_code, Some(0));
+    }
+
+    #[test]
+    fn streaming_has_no_timeout_because_long_transfers_are_legitimate() {
+        // A multi-hour image is a normal acquisition; only cancellation may stop
+        // it. This asserts the stream path never consults the timeout.
+        let (program, args) = echo_program();
+        let mut collected = Vec::new();
+        let outcome = SystemRunner::new()
+            .with_timeout(Some(Duration::from_nanos(1)))
+            .stream(&program, &args, &CancellationToken::new(), &mut |chunk| {
+                collected.extend_from_slice(chunk);
+                Ok(())
+            })
+            .unwrap();
+        assert!(outcome.success(), "{outcome:?}");
+        assert!(String::from_utf8_lossy(&collected).contains("hello"));
     }
 
     #[test]
