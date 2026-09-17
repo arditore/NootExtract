@@ -1,0 +1,9 @@
+# Normalize line endings to LF in the repository and in working copies.
+# The project is built and tested on Linux, macOS and Windows, and manifests
+# and hash lists must be byte-identical across all three.
+* text=auto eol=lf
+
+# Keep binary files untouched.
+*.png binary
+*.jpg binary
+*.ico binary

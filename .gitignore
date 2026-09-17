@@ -1,0 +1,33 @@
+# Build output
+/target/
+
+# Evidence must never enter the repository.
+# These patterns are a safety net, not a substitute for keeping case data
+# outside the working tree entirely.
+/evidence/
+**/original/
+**/derived/
+**/working/
+**/manifests/
+**/hashes/
+*.raw
+*.dd
+*.img
+*.E01
+*.Ex01
+*.[0-9][0-9][0-9]
+*.partial
+*.manifest.json
+*.sha256
+*.sha512
+
+# Logs
+*.jsonl
+*.log
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
