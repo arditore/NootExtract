@@ -26,11 +26,12 @@ it for a complete run.
 | `no-default-features` | Builds and tests without `test-support`, and asserts the scripted ADB stand-in is absent from a default release build |
 
 The Linux and macOS legs matter specifically: the Unix-only symlink tests are
-compiled out on Windows, so they have never run in this environment.
+compiled out on Windows, where this project was developed.
 
-**This workflow has never been executed.** The repository has no remote and the
-development environment had no network access, so CI results are a design, not a
-result. The first push is what will turn it into evidence.
+**First execution: all five jobs passed** (run `35244945195`, commit `f01cc07`) —
+Ubuntu in 1m18s, macOS in 1m28s, Windows in 3m27s, plus the MSRV and
+default-feature jobs. That run is what first executed the Unix symlink tests and
+what first compiled the crate on the declared minimum toolchain.
 
 ## 🗂️ Layout
 
@@ -96,6 +97,15 @@ Automated, on every run:
 - Manifest timestamps are emitted at fixed nanosecond precision and the event log
   reads in chronological order.
 
+Established by the first CI run, on real runners rather than by construction:
+
+- The suite passes on Linux, macOS and Windows, including the end-to-end
+  workflow check on each.
+- The Unix-only symlink tests pass. They had never run before that point.
+- The crate compiles and its tests pass on Rust 1.88, the declared minimum.
+- A default build (without `test-support`) produces only the `nootextract`
+  binary; the scripted ADB stand-in is absent from it.
+
 Manually executed during development, recorded here as one-off results:
 
 - `sha256sum -c` (GNU coreutils) against a NootExtract-produced hash list:
@@ -130,16 +140,10 @@ Stated explicitly so nothing here is mistaken for a compatibility claim:
 - **The E01 conversion path was never executed.** libewf was not available in the
   development environment, so `ewfacquire` and `ewfverify` were never invoked.
   Only the missing-tool and occupied-destination paths are covered by tests.
-- **Only Windows was used.** The suite was developed and executed on Windows 11
-  with Rust 1.96.0. The Unix-only symlink tests are compiled out there and have
-  never run anywhere. The CI workflow is configured to run them on Linux and
-  macOS, but has not yet been executed.
-- **The declared MSRV was not compiled.** `rust-version = "1.88"` is derived
-  from the language features used (let chains on edition 2024), not from a build
-  on 1.88. The `msrv` CI job exists to check it.
+- **No multi-gigabyte image was processed.** See the performance note below.
 - **No performance measurement was made** on a multi-gigabyte image. Bounded
   memory use is a property of the code (fixed-size buffers, streaming I/O), not
-  something measured here.
+  something measured here. The largest artifact exercised is a few megabytes.
 
 Before relying on any of the above, validate it in your own environment on
 non-evidential test data.

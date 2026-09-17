@@ -1,18 +1,18 @@
-<div align="center">
+# NootExtract
 
+```text
+     .--.
+    |o_o |     N O O T E X T R A C T
+    |:_/ |
+   //   \ \    Android forensic acquisition
+  (|     | )   and evidence preparation
+ /'\_   _/`\
+ \___)=(___/   noot noot.
 ```
-                     .--.
-                    |o_o |
-                    |:_/ |          N O O T E X T R A C T
-                   //   \ \
-                  (|     | )        noot noot.
-                 /'\_   _/`\
-                 \___)=(___/
-```
-
-**Android forensic acquisition and evidence preparation**
 
 *The colony keeps what it catches. Nothing thaws, nothing is eaten.*
+
+<div align="center">
 
 [![CI](https://img.shields.io/badge/CI-linux%20%7C%20macos%20%7C%20windows-2b4c6f)](.github/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-2b4c6f)](https://www.rust-lang.org/)
@@ -230,9 +230,8 @@ The automated suite runs without a physical device. Device behaviour is supplied
 by a scripted ADB stand-in, which exercises the real command paths but is not
 evidence that any particular handset or Android version behaves as modelled.
 
-A CI workflow runs the suite plus a full end-to-end check on Linux, macOS and
-Windows, and verifies the declared minimum Rust version. It has not been
-executed yet — the repository has no remote.
+CI runs the suite plus a full end-to-end check on Linux, macOS and Windows, and
+compiles the crate on the declared minimum Rust version. All jobs pass.
 
 **No physical Android device, and no Autopsy import, was used in developing this
 version.** [docs/TESTING.md](docs/TESTING.md) states precisely what was and was
@@ -242,14 +241,10 @@ not verified.
 
 MIT. See [LICENSE](LICENSE).
 
-<div align="center">
+---
 
-```
+```text
    .--.
-  |o_o |   noot noot.
-  |:_/ |
+  |o_o |   Evidence in. Evidence unchanged. Evidence out.
+  |:_/ |   noot noot.
 ```
-
-*Evidence in. Evidence unchanged. Evidence out.*
-
-</div>

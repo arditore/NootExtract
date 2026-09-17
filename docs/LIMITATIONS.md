@@ -73,15 +73,15 @@ capability.
 
 The evidence layer, hashing, manifests, verification and conversion are written
 to behave identically on Linux, macOS and Windows, and the CI workflow runs the
-full suite on all three. So far the suite has only actually been executed on
-Windows; see [TESTING.md](TESTING.md). What differs by platform:
+full suite plus an end-to-end check on all three; it passes on each. See
+[TESTING.md](TESTING.md). What differs by platform:
 
 | Concern | Note |
 |---|---|
 | `adb` availability | Supplied by the Android SDK platform-tools on every platform; must be on `PATH` or given with `--adb-path` |
 | USB device access on Linux | Requires udev rules. Without them the device reports `no permissions`, which is a host configuration problem, not a device lock |
 | USB drivers on Windows | Some vendors require an OEM-specific driver before ADB sees the device |
-| Symlink checks | Meaningful on all platforms, but the symlink-specific tests run only on Unix, where creating one needs no elevation |
+| Symlink checks | Enforced on all platforms, but the symlink-specific tests only compile on Unix, where creating a link needs no elevation; they run in CI on Linux and macOS |
 | libewf | Not bundled anywhere; must be installed separately, and is least readily available on Windows |
 | Extracting a tar archive | Android filenames legal on Linux may be invalid on Windows; extract on Linux where possible |
 

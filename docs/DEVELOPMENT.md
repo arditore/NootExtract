@@ -79,16 +79,51 @@ Deliberately absent:
 Before adding a dependency, state what it does that cannot reasonably be written
 here, and note whether it pulls in `unsafe`.
 
-## 🗣️ Languages
+## 🗣️ Technology stack
 
-Rust is the implementation language. Python appears only in
-`scripts/validate_evidence.py`, where a second, independent implementation of the
-manifest and digest rules provides a genuine cross-check — a bug present in both
-would have to be written twice, independently.
+| Technology | Role | Status |
+|---|---|---|
+| **Rust** | Core: CLI, acquisition, hashing, validation, orchestration | In use, everywhere |
+| **Python** | Interoperability checks and development utilities | In use: `scripts/validate_evidence.py` |
+| **Shell** | Build and test automation only, never business logic | In use: `scripts/e2e-check.sh` |
+| **JSON** | Manifests and machine-to-machine output | In use: schema 1.0, `--json` on every command |
+| **C / C++** | Only if an existing forensic or Android library requires FFI | Not used |
+| **SQLite** | Local index, only if a structured database becomes necessary | Not used |
 
-No shell script contains forensic logic. No C or C++ is compiled. libewf is used
-through its command-line tools rather than through FFI, so no C toolchain is
-needed to build NootExtract.
+Rust holds all forensic logic. Python appears exactly once, in
+`scripts/validate_evidence.py`, where a second implementation of the manifest and
+digest rules — written from the documentation, sharing no code with the Rust —
+provides a genuine cross-check. A defect would have to be written twice,
+independently, to pass both.
+
+Shell appears exactly once, in `scripts/e2e-check.sh`, which only invokes
+programs and compares exit codes. Every integrity decision inside it is made by
+the tools it calls, never by the script.
+
+### Why no C or C++
+
+The one place a C library is genuinely warranted is EWF, and libewf is consumed
+through its command-line tools rather than through FFI. That keeps the build free
+of a C toolchain and keeps `unsafe_code = "forbid"` intact, at the cost of a
+process boundary that is irrelevant for a one-shot conversion. If a future
+requirement needs a library with no usable CLI, FFI is the right answer and this
+decision should be revisited.
+
+### Why no SQLite yet
+
+A manifest is an append-only record of one operation. A database is mutable state
+by design, and putting an evidence record in one would mean the authoritative
+account of an acquisition could be rewritten in place — which is precisely what
+the rest of this tool is built to prevent. Flat JSON documents, one per
+operation, are the stronger primitive here: they can be hashed, copied, signed
+and diffed with ordinary tools.
+
+SQLite becomes the right choice when the workload changes from *recording* to
+*querying*: an index across many cases, cross-case artifact search, or a case
+catalogue for a lab. At that point the correct design is an index that is
+**derived** from the manifests and can be rebuilt from them at any time — never
+the system of record. The manifests stay authoritative; the database stays
+disposable.
 
 ## 💻 Platform setup
 
