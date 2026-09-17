@@ -292,7 +292,7 @@ fn the_manifest_records_everything_the_schema_requires() {
         .as_array()
         .unwrap();
     assert_eq!(remote[0], "tar");
-    assert_eq!(remote.last().unwrap(), "/sdcard");
+    assert_eq!(remote.last().unwrap(), "/storage/emulated/0");
 }
 
 #[test]
@@ -607,7 +607,8 @@ fn a_dry_run_transfers_nothing() {
     let plan = json(&output);
     assert_eq!(plan["method"], "adb-logical-tar");
     assert_eq!(plan["acquisition_kind"], "logical");
-    assert_eq!(plan["source_path"], "/sdcard");
+    // The plan shows the scope that will actually be archived, not the link.
+    assert_eq!(plan["source_path"], "/storage/emulated/0");
     assert!(plan["warnings"].as_array().unwrap().iter().any(|warning| {
         warning
             .as_str()
@@ -1252,4 +1253,84 @@ fn acquiring_into_another_cases_directory_is_refused() {
     assert!(stderr.contains("separate output directory"), "{stderr}");
     // The existing case is untouched.
     assert_eq!(list_dir(&fixture.case_root().join("manifests")).len(), 1);
+}
+
+#[test]
+fn the_sdcard_symlink_is_resolved_before_archiving() {
+    // `/sdcard` is a symlink on every modern Android build, and `tar` does not
+    // follow a symlink named on its command line. Archiving it unresolved
+    // produces an archive holding only the link entry — a clean exit, a valid
+    // digest, and no evidence. This is the regression guard for that.
+    let fixture = Fixture::new("authorized").with_payload(20_480);
+    let output = fixture.acquire(&["--json"]);
+    assert_eq!(
+        code(&output),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let manifest = sole_manifest(&fixture.case_root());
+    let source = &manifest["operation"]["source"];
+    assert_eq!(
+        source["source_path"], "/storage/emulated/0",
+        "the scope must be resolved before archiving"
+    );
+    let remote: Vec<&str> = source["remote_command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect();
+    assert_eq!(remote.last(), Some(&"/storage/emulated/0"));
+
+    // Both the requested and the resolved scope are recorded, so the manifest
+    // states what was asked for and what was actually read.
+    let parameters = &manifest["operation"]["parameters"];
+    assert_eq!(parameters["requested_path"], "/sdcard");
+    assert_eq!(parameters["source_path"], "/storage/emulated/0");
+
+    // The archive holds the payload, not a lone symlink entry.
+    let artifact = &manifest["artifacts"][0];
+    let size = artifact["size_bytes"].as_u64().unwrap();
+    assert!(
+        size >= 20_480,
+        "only {size} bytes captured: the symlink was not resolved"
+    );
+
+    let warnings = manifest["warnings"].to_string();
+    assert!(warnings.contains("symbolic link"), "{warnings}");
+}
+
+#[test]
+fn the_scope_size_is_estimated_by_following_the_symlink() {
+    // `du` without -L measures the link itself and reports zero, which would
+    // both display a false size and satisfy the free-space check trivially.
+    let fixture = Fixture::new("authorized").with_payload(65_536);
+    let output = fixture.acquire(&["--dry-run", "--json"]);
+    assert_eq!(code(&output), Some(0));
+
+    let plan = json(&output);
+    let estimated = plan["estimated_size_bytes"].as_u64();
+    assert_eq!(estimated, Some(65_536), "{plan}");
+    assert!(
+        !plan["warnings"]
+            .to_string()
+            .contains("could not report the size"),
+        "the size was reported, so no indeterminacy warning belongs here"
+    );
+}
+
+#[test]
+fn a_scope_that_captures_almost_nothing_is_flagged_despite_a_clean_exit() {
+    // The general guard: the estimate is compared against what was written, so
+    // a transfer that exits zero having read nothing cannot pass silently.
+    let fixture = Fixture::new("authorized").with_payload(1_048_576);
+    let output = fixture.acquire(&["--source", "/sdcard/DCIM", "--json"]);
+    assert_eq!(code(&output), Some(0));
+
+    let result = json(&output);
+    assert_eq!(result["status"], "completed");
+    let size = result["artifacts"][0]["size_bytes"].as_u64().unwrap();
+    assert!(size >= 1_048_576, "captured only {size} bytes");
 }

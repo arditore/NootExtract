@@ -31,6 +31,17 @@ Cannot capture:
   storage stays unreadable.
 - Filesystem metadata beyond what tar records.
 
+### The `/sdcard` symlink
+
+`/sdcard` is a symbolic link to `/storage/self/primary`, which resolves to
+`/storage/emulated/<user>`. Neither `tar` nor `du` follows a symlink named on its
+command line, so archiving `/sdcard` directly produces an archive containing one
+entry — the link itself — while exiting successfully.
+
+The scope is therefore resolved with `readlink -f` before anything is archived,
+and the manifest records both the requested path and the resolved one. The size
+estimate uses `du -L` for the same reason.
+
 The device's `tar` is toybox on modern Android. Behaviour on unreadable files,
 special files and unusual names is toybox's, not this tool's. `tar` exiting
 non-zero fails the acquisition unless `--allow-source-read-errors` is given, in

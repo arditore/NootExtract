@@ -23,6 +23,15 @@
 //! | `stderr-noise` | transfer succeeds but writes warnings to stderr         |
 //!
 //! `FAKE_ADB_PAYLOAD_BYTES` sets how many bytes a transfer emits (default 4096).
+//!
+//! # The `/sdcard` symlink
+//!
+//! `/sdcard` is modelled as a symbolic link to `/storage/emulated/0`, as it is
+//! on a real device, and the trap that comes with it is reproduced faithfully:
+//! `du` without `-L` reports 0 for it, and `tar` on the unresolved path emits an
+//! archive containing only the link entry. A backend that fails to resolve the
+//! path therefore produces a near-empty archive here too, which is what the
+//! regression test detects.
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -111,9 +120,25 @@ fn print_properties(scenario: &str) {
     }
 }
 
+/// Path `/sdcard` resolves to, mirroring a real device.
+const SDCARD_TARGET: &str = "/storage/emulated/0";
+
+/// Resolves a device path the way `readlink -f` would.
+fn resolve(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("/sdcard") {
+        format!("{SDCARD_TARGET}{rest}")
+    } else {
+        path.to_owned()
+    }
+}
+
 fn exec_out(scenario: &str, command: &str) -> ExitCode {
     if command == "id -u" {
         println!("{}", if scenario == "root" { 0 } else { 2000 });
+        return ExitCode::SUCCESS;
+    }
+    if let Some(path) = command.strip_prefix("readlink -f ") {
+        println!("{}", resolve(path.trim_matches('\'')));
         return ExitCode::SUCCESS;
     }
     if let Some(tool) = command.strip_prefix("command -v ") {
@@ -143,7 +168,12 @@ fn exec_out(scenario: &str, command: &str) -> ExitCode {
     if command.starts_with("cat /sys/class/block/") {
         return ExitCode::from(1);
     }
-    if command.starts_with("tar -c -f - ") {
+    if let Some(target) = command.strip_prefix("tar -c -f - ") {
+        let target = target.trim_matches('\'');
+        if target.starts_with("/sdcard") {
+            // `tar` does not follow a symlink named on its command line.
+            return emit_symlink_only_tar();
+        }
         return emit_tar(scenario);
     }
     if command.starts_with("dd if=") {
@@ -263,6 +293,29 @@ fn emit_tar(scenario: &str) -> ExitCode {
         }
         _ => ExitCode::SUCCESS,
     }
+}
+
+/// Emits an archive holding nothing but the `/sdcard` symlink entry.
+///
+/// This is what a real device produces for `tar -c -f - /sdcard`, and it is the
+/// failure that looks like success: a valid archive, a clean exit, no evidence.
+fn emit_symlink_only_tar() -> ExitCode {
+    let stdout = std::io::stdout().lock();
+    let mut builder = tar::Builder::new(stdout);
+    let mut header = tar::Header::new_gnu();
+    header.set_size(0);
+    header.set_mode(0o777);
+    header.set_entry_type(tar::EntryType::Symlink);
+    if builder
+        .append_link(&mut header, "sdcard", SDCARD_TARGET)
+        .is_err()
+    {
+        return ExitCode::from(1);
+    }
+    if builder.finish().is_err() {
+        return ExitCode::from(1);
+    }
+    ExitCode::SUCCESS
 }
 
 fn payload_bytes() -> u64 {

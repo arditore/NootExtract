@@ -257,6 +257,37 @@ impl AdbClient {
         Ok(parse_size_output(&output.stdout_text()).and_then(|sectors| sectors.checked_mul(512)))
     }
 
+    /// Resolves a path on the device, following symbolic links.
+    ///
+    /// This matters more than it looks. `/sdcard` is a symlink to
+    /// `/storage/self/primary` on every modern Android build, and neither `tar`
+    /// nor `du` follows a symlink given on the command line. Archiving
+    /// `/sdcard` directly therefore yields an archive containing one entry —
+    /// the link itself — and nothing else, while still exiting successfully.
+    ///
+    /// The returned path is device-controlled output and is validated before it
+    /// is used to build another command.
+    pub fn resolve_remote_path(&self, serial: &str, path: &str) -> Result<Option<String>> {
+        let command = RemoteCommand::new("readlink").arg("-f").arg(path);
+        let output = self.exec_out(serial, &command)?;
+        if !output.success() {
+            return Ok(None);
+        }
+        let text = sanitize_device_string(&output.stdout_text());
+        let Some(first) = text.lines().map(str::trim).find(|line| !line.is_empty()) else {
+            return Ok(None);
+        };
+        if let Ok(resolved) = crate::adb::remote::validate_remote_path(first) {
+            Ok(Some(resolved))
+        } else {
+            warn!(
+                device_id = %serial,
+                "the device returned an unusable resolved path; using the requested path"
+            );
+            Ok(None)
+        }
+    }
+
     /// Checks whether a path exists on the device and is readable.
     pub fn remote_path_exists(&self, serial: &str, path: &str) -> Result<bool> {
         let command = RemoteCommand::new("ls").arg("-d").arg(path);

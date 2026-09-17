@@ -97,6 +97,12 @@ Automated, on every run:
 - A conversion source that no longer matches its manifest is refused (exit 5).
 - Manifest timestamps are emitted at fixed nanosecond precision and the event log
   reads in chronological order.
+- The `/sdcard` symlink is resolved before archiving, and the size estimate
+  follows it. The scripted device reproduces the real trap — `du` without `-L`
+  reporting 0, and `tar` on the unresolved path emitting only the link entry — so
+  a regression would show up as an archive far smaller than its payload.
+- A completed transfer that captured a small fraction of the estimated scope is
+  flagged, because a clean exit status alone does not mean the scope was read.
 - Archive extraction refuses entries with `..`, absolute paths and control
   characters, and never creates symbolic links, hard links or device nodes. The
   hostile archives used for this are assembled from raw USTAR headers, because
@@ -138,12 +144,14 @@ SHA-256 only.
 
 Stated explicitly so nothing here is mistaken for a compatibility claim:
 
-- **No physical Android device was used.** No handset, no emulator, and no real
-  `adb` transport were exercised at any point. Device behaviour is modelled by
-  the scripted stand-in, which is a model, not evidence about any real device.
-- **No Android version was tested.** Statements about toybox `tar`, `dd`,
-  `getprop` output and file-based encryption come from Android's documented
-  behaviour, not from observation on a device.
+- **No full acquisition from a physical device has been completed.** One handset
+  (Android 17, SDK 37) has been used for read-only diagnosis over real `adb`:
+  device listing, `getprop`, `readlink`, `du` and short `tar` probes. That is how
+  the `/sdcard` symlink defect was found. No end-to-end acquisition, hashing and
+  verification run against real device data has been performed yet.
+- **Only one Android version has been observed, and only partially.** Statements
+  about toybox `tar`, `dd` and file-based encryption otherwise come from
+  Android's documented behaviour rather than from observation.
 - **Autopsy was not run.** No import was performed into Autopsy, The Sleuth Kit,
   X-Ways, EnCase or AXIOM. The procedures in
   [INTEROPERABILITY.md](INTEROPERABILITY.md) are derived from those tools'

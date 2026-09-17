@@ -35,6 +35,12 @@ pub const DEFAULT_SOURCE_PATH: &str = "/sdcard";
 /// Backend identifier used by `--method`.
 pub const METHOD_ID: &str = "adb-logical-tar";
 
+/// A completed transfer capturing less than this fraction of the estimated
+/// scope is reported as suspect. The estimate is advisory, so the threshold is
+/// deliberately loose: it is meant to catch a scope that was not read at all,
+/// not to second-guess normal variance between `du` and a tar stream.
+const SHORTFALL_FRACTION: u64 = 8;
+
 const REQUIREMENTS: &[&str] = &[
     "USB debugging enabled and this host's ADB key authorized on the device",
     "the device unlocked, so file-based-encryption protected directories are readable",
@@ -67,8 +73,20 @@ impl LogicalTarBackend {
     /// `du` reports allocated size in 1 KiB blocks, which over-estimates the tar
     /// stream for sparse trees and under-estimates it for many small files
     /// because of per-entry headers. It is treated as advisory only.
+    ///
+    /// `-L` is required: without it `du` measures a symlink given on the command
+    /// line rather than what it points at, and reports 0 for `/sdcard`.
+    ///
+    /// A zero result is returned as unknown rather than as a size. Zero would
+    /// otherwise satisfy the free-space check trivially and be displayed as a
+    /// fact, and for a scope that is genuinely empty there is nothing to
+    /// estimate anyway.
     fn estimate_size(&self, device_id: &str, path: &str) -> Option<u64> {
-        let command = RemoteCommand::new("du").arg("-s").arg("-k").arg(path);
+        let command = RemoteCommand::new("du")
+            .arg("-s")
+            .arg("-k")
+            .arg("-L")
+            .arg(path);
         let output = self.client.exec_out(device_id, &command).ok()?;
         if !output.success() {
             return None;
@@ -76,7 +94,7 @@ impl LogicalTarBackend {
         let text = output.stdout_text();
         let first = text.lines().next()?;
         let kib = first.split_whitespace().next()?.parse::<u64>().ok()?;
-        kib.checked_mul(1024)
+        kib.checked_mul(1024).filter(|bytes| *bytes > 0)
     }
 }
 
@@ -95,8 +113,26 @@ impl AcquisitionBackend for LogicalTarBackend {
 
     fn preflight(&self, context: &AcquisitionContext<'_>) -> Result<Preflight> {
         let device = self.client.require_acquirable_device(&context.device_id)?;
-        let path = Self::source_path(context)?;
+        let requested = Self::source_path(context)?;
         let mut warnings = Vec::new();
+
+        // `/sdcard` is a symlink on every modern Android build, and `tar` does
+        // not follow a symlink named on its command line: archiving it directly
+        // captures the link entry and nothing else, while still succeeding. The
+        // scope is therefore resolved before anything is archived.
+        let path = match self
+            .client
+            .resolve_remote_path(&context.device_id, &requested)?
+        {
+            Some(resolved) if resolved != requested => {
+                warnings.push(format!(
+                    "`{requested}` is a symbolic link to `{resolved}`; the acquisition follows \
+                     it and archives the target, which is what the manifest records"
+                ));
+                resolved
+            }
+            _ => requested.clone(),
+        };
 
         if !self
             .client
@@ -148,6 +184,7 @@ impl AcquisitionBackend for LogicalTarBackend {
 
         let command = tar_command(&path);
         let mut parameters = BTreeMap::new();
+        parameters.insert("requested_path".to_owned(), requested.clone());
         parameters.insert("source_path".to_owned(), path.clone());
         parameters.insert("container".to_owned(), "tar".to_owned());
         parameters.insert(
@@ -208,6 +245,25 @@ impl AcquisitionBackend for LogicalTarBackend {
         outcome.events.extend(result.events);
         outcome.errors = result.errors;
         outcome.warnings = result.warnings;
+
+        // A transfer that exits cleanly having captured a small fraction of the
+        // expected scope is the dangerous case: it looks like success. Rather
+        // than trust the exit status alone, the written size is compared against
+        // the estimate and a large shortfall is stated plainly.
+        if let Some(expected) = preflight.estimated_size
+            && result.status.is_complete()
+        {
+            let floor = expected.saturating_div(SHORTFALL_FRACTION);
+            if result.artifact.size_bytes < floor {
+                outcome.warnings.push(format!(
+                    "the scope was estimated at {expected} bytes but only {} bytes were \
+                     captured. Inspect the archive before relying on it: a clean exit does \
+                     not by itself mean the scope was readable.",
+                    result.artifact.size_bytes
+                ));
+            }
+        }
+
         outcome.artifacts.push(result.artifact);
         Ok(outcome)
     }
