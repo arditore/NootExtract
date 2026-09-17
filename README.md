@@ -76,7 +76,7 @@ Requires a stable Rust toolchain (1.88 or newer; developed and tested against
 1.96.0) and the Android SDK platform-tools, which provide `adb`.
 
 ```sh
-git clone <repository-url>
+git clone https://github.com/arditore/NootExtract.git
 cd NootExtract
 cargo build --release
 ```
