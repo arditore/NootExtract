@@ -2,11 +2,11 @@
 name = "nootextract"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+# Let chains (`if let ... && ...`) require 1.88 on edition 2024.
+rust-version = "1.88"
 description = "Acquisition and evidence-preparation tool for authorized Android digital-forensics workflows"
 license = "MIT"
 readme = "README.md"
-repository = ""
 keywords = ["forensics", "android", "acquisition", "evidence", "adb"]
 categories = ["command-line-utilities"]
 

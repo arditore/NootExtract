@@ -14,7 +14,8 @@
 
 *The colony keeps what it catches. Nothing thaws, nothing is eaten.*
 
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-2b4c6f)](https://www.rust-lang.org/)
+[![CI](https://img.shields.io/badge/CI-linux%20%7C%20macos%20%7C%20windows-2b4c6f)](.github/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-2b4c6f)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-4a90a4)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-277%20passing-3f7f6f)](docs/TESTING.md)
 [![unsafe](https://img.shields.io/badge/unsafe-forbidden-5a6b7c)](docs/SECURITY.md)
@@ -71,8 +72,8 @@ depends on authorization, procedure and jurisdiction.
 
 ## 🛠️ Installation
 
-Requires a stable Rust toolchain (1.85 or newer; developed against 1.96) and the
-Android SDK platform-tools, which provide `adb`.
+Requires a stable Rust toolchain (1.88 or newer; developed and tested against
+1.96.0) and the Android SDK platform-tools, which provide `adb`.
 
 ```sh
 git clone <repository-url>
@@ -228,6 +229,10 @@ not. NootExtract does not claim compatibility it has not exercised.
 The automated suite runs without a physical device. Device behaviour is supplied
 by a scripted ADB stand-in, which exercises the real command paths but is not
 evidence that any particular handset or Android version behaves as modelled.
+
+A CI workflow runs the suite plus a full end-to-end check on Linux, macOS and
+Windows, and verifies the declared minimum Rust version. It has not been
+executed yet — the repository has no remote.
 
 **No physical Android device, and no Autopsy import, was used in developing this
 version.** [docs/TESTING.md](docs/TESTING.md) states precisely what was and was

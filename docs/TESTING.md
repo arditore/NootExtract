@@ -8,11 +8,29 @@
 cargo fmt --all --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
+bash scripts/e2e-check.sh
 ```
 
 `--all-features` enables `test-support`, which builds the scripted ADB stand-in.
 Without it the acquisition integration tests are compiled out and skipped, so use
 it for a complete run.
+
+## 🤖 Continuous integration
+
+`.github/workflows/ci.yml` runs three jobs:
+
+| Job | What it covers |
+|---|---|
+| `test` | `fmt`, `clippy -D warnings`, `cargo test --all-features` and `scripts/e2e-check.sh`, on Linux, macOS **and** Windows |
+| `msrv` | Reads `rust-version` from `Cargo.toml`, installs exactly that toolchain and runs the suite on it, so the declared floor is verified rather than assumed |
+| `no-default-features` | Builds and tests without `test-support`, and asserts the scripted ADB stand-in is absent from a default release build |
+
+The Linux and macOS legs matter specifically: the Unix-only symlink tests are
+compiled out on Windows, so they have never run in this environment.
+
+**This workflow has never been executed.** The repository has no remote and the
+development environment had no network access, so CI results are a design, not a
+result. The first push is what will turn it into evidence.
 
 ## 🗂️ Layout
 
@@ -23,6 +41,7 @@ it for a complete run.
 | `tests/acquisition.rs` | End-to-end | Full acquire → verify → convert → copy workflows against the scripted device |
 | `tests/safety.rs` | Filesystem safety | Overwrite refusal, traversal, symlinks, corruption detection, overflow, hostile manifests |
 | `scripts/validate_evidence.py` | Independent cross-check | Re-implements the manifest rules and digests in Python, sharing no code with the Rust implementation |
+| `scripts/e2e-check.sh` | Workflow check | Drives the release binary through acquire → convert → copy → verify, then cross-checks with the Python validator, coreutils `sha256sum`, segment reassembly and a tampering probe |
 
 ## 🎭 The scripted device
 
@@ -113,7 +132,11 @@ Stated explicitly so nothing here is mistaken for a compatibility claim:
   Only the missing-tool and occupied-destination paths are covered by tests.
 - **Only Windows was used.** The suite was developed and executed on Windows 11
   with Rust 1.96.0. The Unix-only symlink tests are compiled out there and have
-  not been run.
+  never run anywhere. The CI workflow is configured to run them on Linux and
+  macOS, but has not yet been executed.
+- **The declared MSRV was not compiled.** `rust-version = "1.88"` is derived
+  from the language features used (let chains on edition 2024), not from a build
+  on 1.88. The `msrv` CI job exists to check it.
 - **No performance measurement was made** on a multi-gigabyte image. Bounded
   memory use is a property of the code (fixed-size buffers, streaming I/O), not
   something measured here.

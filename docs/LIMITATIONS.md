@@ -71,9 +71,10 @@ capability.
 
 ## 💻 Platform differences
 
-The evidence layer, hashing, manifests, verification and conversion behave
-identically on Linux, macOS and Windows, and the automated suite runs on all
-three by construction. What differs:
+The evidence layer, hashing, manifests, verification and conversion are written
+to behave identically on Linux, macOS and Windows, and the CI workflow runs the
+full suite on all three. So far the suite has only actually been executed on
+Windows; see [TESTING.md](TESTING.md). What differs by platform:
 
 | Concern | Note |
 |---|---|

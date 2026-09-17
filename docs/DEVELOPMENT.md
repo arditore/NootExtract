@@ -4,8 +4,10 @@
 
 ## 🦀 Toolchain
 
-Stable Rust, edition 2024, `rust-version = 1.85`. Developed and tested against
-1.96.0.
+Stable Rust, edition 2024, `rust-version = 1.88`. The floor is set by let chains
+(`if let ... && ...`), which edition 2024 stabilized in 1.88. Developed and tested
+against 1.96.0; the declared floor is enforced by a dedicated CI job rather than
+assumed.
 
 ```sh
 rustup toolchain install stable
@@ -30,9 +32,12 @@ preserving; the `.partial` file on disk is the record either way.
 cargo fmt --all --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
+bash scripts/e2e-check.sh
 ```
 
-All three must pass. Lints are configured in `Cargo.toml` rather than in source
+All four must pass. The last one drives the release binary through a complete
+case and cross-checks the result against the Python validator and coreutils
+`sha256sum`; it is what caught a defect the unit tests missed. Lints are configured in `Cargo.toml` rather than in source
 attributes, so they apply uniformly:
 
 - `unsafe_code = "forbid"` — there is no `unsafe` in this crate.
@@ -148,7 +153,7 @@ real status, and register it in `available_backends()`.
 1. `cargo fmt --all --check`
 2. `cargo clippy --all-targets --all-features -- -D warnings`
 3. `cargo test --all-features`
-4. Run `scripts/validate_evidence.py` against a freshly produced case.
+4. `bash scripts/e2e-check.sh` — the full workflow with independent cross-checks.
 5. Confirm the documentation matches the implementation, particularly
    [TESTING.md](TESTING.md) and [IMAGE_FORMATS.md](IMAGE_FORMATS.md).
 6. Confirm no evidence, personal data, credentials or case material has entered
