@@ -26,6 +26,10 @@ limitation is reported.
 Original evidence is never modified, never overwritten and never deleted by this \
 tool. Conversions and copies are written as separate derived artifacts.
 
+Run with no arguments on a terminal to start a guided session. It prints the \
+equivalent command line for every operation, so anything done interactively can \
+be reproduced, scripted and audited.
+
 EXIT CODES
   0    success; all integrity checks passed
   1    unclassified runtime failure
@@ -52,8 +56,10 @@ pub struct Cli {
     #[command(flatten)]
     pub global: GlobalArgs,
 
+    /// Absent when the binary is invoked with no subcommand, which starts the
+    /// interactive session on a terminal.
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 /// Options accepted by every subcommand.
@@ -115,6 +121,40 @@ pub enum Command {
 
     /// List the acquisition methods this build provides.
     Methods,
+
+    /// Check the environment: adb, devices, optional tools, destination.
+    Doctor(DoctorArgs),
+
+    /// Render a Markdown report of a case for an examiner's file.
+    Report(ReportArgs),
+
+    /// Start the guided interactive session explicitly.
+    Interactive,
+}
+
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    /// Directory to test for writability, as an acquisition destination would.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: Option<PathBuf>,
+
+    /// Path to libewf's acquisition tool, checked for availability.
+    #[arg(long, value_name = "PATH", default_value = DEFAULT_ACQUIRE_PROGRAM)]
+    pub ewfacquire_path: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ReportArgs {
+    /// Case directory to report on.
+    pub path: PathBuf,
+
+    /// Write the report to this file instead of standard output.
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
+
+    /// Recompute every digest and include the verification result.
+    #[arg(long)]
+    pub verify: bool,
 }
 
 #[derive(Debug, Args)]
@@ -360,7 +400,7 @@ mod tests {
         ])
         .unwrap();
 
-        let Command::Acquire(args) = cli.command else {
+        let Some(Command::Acquire(args)) = cli.command else {
             panic!("expected the acquire subcommand");
         };
         assert_eq!(args.device_id, "ABC123");

@@ -544,3 +544,114 @@ fn stdout_stays_clean_for_json_consumers() {
             .eval(&String::from_utf8_lossy(&output.stderr))
     );
 }
+
+#[test]
+fn a_bare_invocation_without_a_terminal_is_a_usage_error() {
+    // The guided session needs a terminal. From a pipe or a CI job it must fail
+    // fast rather than hang waiting on a prompt that will never be answered.
+    let output = nootextract().output().unwrap();
+    assert_eq!(code(&output), Some(2));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("needs a terminal"), "{stderr}");
+    assert!(stderr.contains("--help"), "{stderr}");
+}
+
+#[test]
+fn the_interactive_subcommand_refuses_without_a_terminal_too() {
+    let output = nootextract().arg("interactive").output().unwrap();
+    assert_eq!(code(&output), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("needs a terminal"), "{stderr}");
+    // The message must not claim no subcommand was given; one was.
+    assert!(!stderr.contains("no subcommand"), "{stderr}");
+}
+
+#[test]
+fn help_documents_the_bare_invocation() {
+    let output = nootextract().arg("--help").output().unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("no arguments"), "{text}");
+    assert!(text.contains("reproduced"), "{text}");
+}
+
+#[test]
+fn doctor_reports_the_environment_without_touching_evidence() {
+    let output = nootextract().args(["doctor", "--json"]).output().unwrap();
+    assert_eq!(code(&output), Some(0));
+
+    let value = json(&output);
+    let checks = value["checks"].as_array().unwrap();
+    assert!(!checks.is_empty());
+
+    let names: Vec<&str> = checks
+        .iter()
+        .filter_map(|check| check["name"].as_str())
+        .collect();
+    assert!(names.contains(&"nootextract"), "{names:?}");
+    assert!(names.contains(&"adb"), "{names:?}");
+    assert!(value["ready_to_acquire"].is_boolean());
+
+    // Every check that is not OK must say what to do about it.
+    for check in checks {
+        if check["status"] != "ok" {
+            assert!(
+                check["remedy"].is_string(),
+                "check {:?} reports a problem with no remedy",
+                check["name"]
+            );
+        }
+    }
+}
+
+#[test]
+fn doctor_fails_when_adb_is_absent() {
+    let output = nootextract()
+        .args(["doctor", "--json", "--adb-path", "nootextract-absent-adb"])
+        .output()
+        .unwrap();
+    assert_eq!(code(&output), Some(0), "doctor reports, it does not abort");
+
+    let value = json(&output);
+    assert_eq!(value["ready_to_acquire"], false);
+    let adb = value["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "adb")
+        .unwrap();
+    assert_eq!(adb["status"], "fail");
+    assert!(adb["remedy"].as_str().unwrap().contains("platform-tools"));
+}
+
+#[test]
+fn doctor_checks_a_destination_it_is_pointed_at() {
+    let dir = workspace();
+    let output = nootextract()
+        .args(["doctor", "--json", "--output"])
+        .arg(dir.path().join("CASE-001"))
+        .output()
+        .unwrap();
+    assert_eq!(code(&output), Some(0));
+
+    let value = json(&output);
+    let destination = value["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "destination")
+        .expect("the destination must be checked when given");
+    assert_eq!(destination["status"], "ok");
+    assert!(destination["detail"].as_str().unwrap().contains("writable"));
+}
+
+#[test]
+fn report_refuses_a_directory_that_is_not_a_case() {
+    let dir = workspace();
+    let output = nootextract()
+        .arg("report")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(code(&output), Some(6));
+}

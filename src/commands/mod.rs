@@ -8,7 +8,9 @@
 pub mod acquire;
 pub mod derive;
 pub mod device;
+pub mod doctor;
 pub mod evidence;
+pub mod report;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -42,9 +44,16 @@ impl CommandContext {
 }
 
 /// Dispatches to the selected command.
+///
+/// A bare invocation carries no subcommand and starts the guided session; the
+/// caller has already established that a terminal is attached.
 pub fn dispatch(cli: Cli, cancel: CancellationToken) -> Result<()> {
     let context = CommandContext::new(&cli, cancel);
-    match cli.command {
+    let global = cli.global.clone();
+    let Some(command) = cli.command else {
+        return crate::interactive::run(&context, &global);
+    };
+    match command {
         Command::Devices(args) => device::devices(&context, &args),
         Command::Info(args) => device::info(&context, &args),
         Command::Methods => device::methods(&context),
@@ -55,6 +64,25 @@ pub fn dispatch(cli: Cli, cancel: CancellationToken) -> Result<()> {
         Command::Convert(args) => derive::convert(&context, &args),
         Command::Copy(args) => derive::copy(&context, &args),
         Command::Extract(args) => derive::extract(&context, &args),
+        Command::Doctor(args) => doctor::run(&context, &args),
+        Command::Report(args) => report::run(&context, &args),
+        Command::Interactive => crate::interactive::run(&context, &global),
+    }
+}
+
+#[cfg(test)]
+impl CommandContext {
+    /// Builds a context for unit tests, with progress and JSON disabled.
+    pub(crate) fn for_tests(adb_path: &str) -> Self {
+        Self {
+            mode: OutputMode {
+                json: false,
+                quiet: true,
+                progress: false,
+            },
+            adb: Arc::new(AdbClient::new(adb_path)),
+            cancel: CancellationToken::new(),
+        }
     }
 }
 

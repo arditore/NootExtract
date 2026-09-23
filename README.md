@@ -17,7 +17,7 @@
 [![CI](https://img.shields.io/badge/CI-linux%20%7C%20macos%20%7C%20windows-2b4c6f)](.github/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-2b4c6f)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-4a90a4)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-301%20passing-3f7f6f)](docs/TESTING.md)
+[![Tests](https://img.shields.io/badge/tests-338%20passing-3f7f6f)](docs/TESTING.md)
 [![unsafe](https://img.shields.io/badge/unsafe-forbidden-5a6b7c)](docs/SECURITY.md)
 
 </div>
@@ -100,7 +100,24 @@ dependency used by E01 conversion.
 
 ## 🐟 Quick start
 
+Type the name and nothing else:
+
 ```sh
+nootextract
+```
+
+That starts a guided session: it lists your devices, walks through an
+acquisition, shows the plan as a dry run before transferring anything, and
+**prints the equivalent command line for every operation**. Nothing done
+interactively is unreproducible — the printed command is the one to put in a
+script or a case note.
+
+Everything is also available directly:
+
+```sh
+# 0. Check the environment before touching a device.
+nootextract doctor --output ./evidence/CASE-001
+
 # 1. Discover devices and confirm authorization state.
 nootextract devices
 
@@ -120,8 +137,11 @@ nootextract acquire FAKEDEVICE01 \
 # 5. Verify the case against its manifests.
 nootextract verify ./evidence/CASE-001
 
-# 6. Produce a working copy for analysis, leaving the original untouched.
-nootextract copy ./evidence/CASE-001/original/EVIDENCE-001-logical.tar
+# 6. Unpack the archive into verified, manifested files for analysis.
+nootextract extract ./evidence/CASE-001/original/EVIDENCE-001-logical.tar
+
+# 7. Render a report for the case file.
+nootextract report ./evidence/CASE-001 --verify > CASE-001-report.md
 ```
 
 Real output from step 5 on a completed case:
@@ -148,6 +168,9 @@ MATCH   original/EVIDENCE-001-logical.tar  original  -
 | `nootextract copy <PATH>` | Produce a verified working copy |
 | `nootextract extract <PATH>` | Unpack a logical archive into verified, manifested files |
 | `nootextract methods` | List acquisition backends and their requirements |
+| `nootextract doctor` | Check the environment: adb, devices, free space, optional tools |
+| `nootextract report <PATH>` | Render a Markdown case report for an examiner's file |
+| `nootextract` (no arguments) | Start the guided session |
 
 Global options: `--help`, `--version`, `--verbose`, `--quiet`, `--json`,
 `--no-progress`, `--adb-path`. Acquisition adds `--output`, `--case-id`,

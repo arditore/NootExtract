@@ -42,6 +42,7 @@ what first compiled the crate on the declared minimum toolchain.
 | `tests/acquisition.rs` | End-to-end | Full acquire → verify → convert → copy workflows against the scripted device |
 | `tests/safety.rs` | Filesystem safety | Overwrite refusal, traversal, symlinks, corruption detection, overflow, hostile manifests |
 | `scripts/validate_evidence.py` | Independent cross-check | Re-implements the manifest rules and digests in Python, sharing no code with the Rust implementation |
+| `src/interactive.rs` tests | Prompt flows | Menu selection, confirmation, validation and end-of-input handling, driven by scripted transcripts rather than by hand |
 | `src/bin/fake_adb.rs` | Scripted device | Emits a genuine tar archive for logical acquisition, so format identification and extraction are exercised against a real container rather than arbitrary bytes |
 | `scripts/e2e-check.sh` | Workflow check | Drives the release binary through acquire → convert → copy → verify, then cross-checks with the Python validator, coreutils `sha256sum`, segment reassembly and a tampering probe |
 
@@ -113,6 +114,16 @@ Automated, on every run:
 - A metadata command that stops responding is terminated by the watchdog rather
   than blocking indefinitely; streaming is deliberately exempt.
 - Acquiring into a case directory that already holds another case is refused.
+- The guided session refuses to start without a terminal rather than hanging on a
+  prompt, and its menu, confirmation and validation flows are driven by scripted
+  transcripts: an out-of-range menu number is re-asked rather than falling
+  through to an operation, an unrecognised confirmation is re-asked rather than
+  assumed, an identifier the flag path rejects is rejected here too, and end of
+  input ends the session instead of looping.
+- Every printed command line quotes anything a shell would act on, so a pasted
+  command is the command that ran.
+- `doctor` reports rather than aborts: a missing `adb` is a failing check with a
+  remedy, not an error exit, and every non-passing check carries a remedy.
 
 Established by the first CI run, on real runners rather than by construction:
 
@@ -160,6 +171,10 @@ Stated explicitly so nothing here is mistaken for a compatibility claim:
   development environment, so `ewfacquire` and `ewfverify` were never invoked.
   Only the missing-tool and occupied-destination paths are covered by tests.
 - **No multi-gigabyte image was processed.** See the performance note below.
+- **The guided session has not been driven through a real terminal end to end.**
+  Its terminal guard and its prompt logic are covered by tests, but the visual
+  session — banner, menus, a full acquisition walkthrough — has only been
+  exercised through those tests, not by a person at a console.
 - **No performance measurement was made** on a multi-gigabyte image. Bounded
   memory use is a property of the code (fixed-size buffers, streaming I/O), not
   something measured here. The largest artifact exercised is a few megabytes.

@@ -4,6 +4,7 @@
 //! # Layering
 //!
 //! ```text
+//! interactive/   guided session; a front end over the same commands
 //! commands/      operator-facing workflows, exit-code mapping
 //! acquisition/   backends that obtain bytes from a device
 //! evidence/      layout, manifests, verification (knows nothing about Android)
@@ -41,6 +42,7 @@ pub mod error;
 pub mod evidence;
 pub mod hashing;
 pub mod imaging;
+pub mod interactive;
 pub mod logging;
 pub mod output;
 pub mod util;

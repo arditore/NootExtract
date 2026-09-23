@@ -34,7 +34,7 @@ fn run(cli: Cli) -> Result<()> {
         verbose: cli.global.verbose,
         quiet: cli.global.quiet,
     };
-    let log_file = commands::case_log_path(&cli.command);
+    let log_file = cli.command.as_ref().and_then(commands::case_log_path);
     if let Some(warning) = logging::init(verbosity, cli.global.json, log_file.as_deref())? {
         tracing::warn!("{warning}");
     }
