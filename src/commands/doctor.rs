@@ -192,11 +192,17 @@ fn check_devices(context: &CommandContext) -> Vec<Check> {
     };
 
     if devices.is_empty() {
+        // A stale ADB server reports an empty list for a device that is plugged
+        // in and authorized, which looks exactly like a disconnected cable.
+        // Restarting it is the usual remedy, and it is suggested rather than
+        // done: `adb kill-server` would drop any transfer already in flight.
         return vec![Check::warn(
             "device",
-            "no device is connected",
+            "no device is reported by the ADB server",
             "connect the device by USB, select a data-transfer mode, enable USB debugging \
-             in Developer options, and accept the prompt shown on the device",
+             in Developer options, and accept the prompt shown on the device. If it is \
+             already connected and was working a moment ago, the ADB server has most \
+             likely gone stale: run `adb kill-server` and try again.",
         )];
     }
 

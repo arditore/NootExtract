@@ -17,7 +17,7 @@
 [![CI](https://img.shields.io/badge/CI-linux%20%7C%20macos%20%7C%20windows-2b4c6f)](.github/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-2b4c6f)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-4a90a4)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-347%20passing-3f7f6f)](docs/TESTING.md)
+[![Tests](https://img.shields.io/badge/tests-352%20passing-3f7f6f)](docs/TESTING.md)
 [![unsafe](https://img.shields.io/badge/unsafe-forbidden-5a6b7c)](docs/SECURITY.md)
 
 </div>
@@ -106,13 +106,30 @@ Type the name and nothing else:
 nootextract
 ```
 
-That starts a guided session: it lists your devices, walks through an
-acquisition, shows the plan as a dry run before transferring anything, and
-**prints the equivalent command line for every operation**. Nothing done
-interactively is unreproducible — the printed command is the one to put in a
-script or a case note.
+That opens a shell:
 
-Everything is also available directly:
+```text
+nootextract> devices
+DEVICE ID       STATE       MODEL           ANDROID  BUILD            ACQUIRABLE
+--------------  ----------  --------------  -------  ---------------  ----------
+45280DLAQ003QS  authorized  Google Pixel 9  17       CP2A.260805.005  yes
+
+nootextract> acquire
+  (guided: device, identifiers, scope, dry run, then confirm)
+
+nootextract> help
+nootextract> exit
+```
+
+What you type at the prompt is parsed by the **same definition** as the command
+line and dispatched through the same code, so every flag works
+(`devices --json`, `hash image.raw --sha512`, `verify ./case --ignore-extra`)
+and anything learned at the prompt works unchanged in a script. A command that
+needs an argument and is given none asks for it; `acquire` on its own walks
+through the whole thing and previews it as a dry run before transferring
+anything.
+
+Everything is equally available without the shell:
 
 ```sh
 # 0. Check the environment before touching a device.

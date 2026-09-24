@@ -53,20 +53,32 @@ pub fn dispatch(cli: Cli, cancel: CancellationToken) -> Result<()> {
     let Some(command) = cli.command else {
         return crate::interactive::run(&context, &global);
     };
+    run_command(&context, &global, command)
+}
+
+/// Runs one parsed command.
+///
+/// Split out so the interactive shell dispatches through exactly the same path
+/// as the command line, rather than reimplementing it.
+pub fn run_command(
+    context: &CommandContext,
+    global: &crate::cli::GlobalArgs,
+    command: Command,
+) -> Result<()> {
     match command {
-        Command::Devices(args) => device::devices(&context, &args),
-        Command::Info(args) => device::info(&context, &args),
-        Command::Methods => device::methods(&context),
-        Command::Acquire(args) => acquire::run(&context, &args),
-        Command::Hash(args) => evidence::hash(&context, &args),
-        Command::Verify(args) => evidence::verify(&context, &args),
-        Command::Manifest(args) => evidence::manifest(&context, &args),
-        Command::Convert(args) => derive::convert(&context, &args),
-        Command::Copy(args) => derive::copy(&context, &args),
-        Command::Extract(args) => derive::extract(&context, &args),
-        Command::Doctor(args) => doctor::run(&context, &args),
-        Command::Report(args) => report::run(&context, &args),
-        Command::Interactive => crate::interactive::run(&context, &global),
+        Command::Devices(args) => device::devices(context, &args),
+        Command::Info(args) => device::info(context, &args),
+        Command::Methods => device::methods(context),
+        Command::Acquire(args) => acquire::run(context, &args),
+        Command::Hash(args) => evidence::hash(context, &args),
+        Command::Verify(args) => evidence::verify(context, &args),
+        Command::Manifest(args) => evidence::manifest(context, &args),
+        Command::Convert(args) => derive::convert(context, &args),
+        Command::Copy(args) => derive::copy(context, &args),
+        Command::Extract(args) => derive::extract(context, &args),
+        Command::Doctor(args) => doctor::run(context, &args),
+        Command::Report(args) => report::run(context, &args),
+        Command::Interactive => crate::interactive::run(context, global),
     }
 }
 

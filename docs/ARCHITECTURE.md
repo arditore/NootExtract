@@ -41,21 +41,28 @@ src/
     util/               path safety, cancellation, byte parsing
 ```
 
-## 🎛️ The interactive session
+## 🎛️ The interactive shell
 
-`nootextract` with no arguments starts a guided session. It builds the same
-argument structures the flags produce and calls the same command functions, so a
-guided run cannot reach a state the command line cannot, and cannot skip a check
-that only the flag path enforces.
+`nootextract` with no arguments opens a prompt. What is typed there is parsed by
+the same `clap` definition the command line uses and dispatched through the same
+`run_command`, so there is no second command surface to keep in step: every flag,
+default and validation rule is the one the flags already have.
 
-It prints the equivalent command line before every operation. An operation
-performed through a menu that leaves no reproducible form behind is not
-auditable, and "I chose acquire from a list" is not an answer to how evidence was
-produced. The session also refuses to start without a terminal, so a bare
-invocation in a pipe or a CI job is a usage error rather than a hang.
+That choice is what keeps the shell honest. A separate menu-driven command set
+would drift from the flags, and a command learned at the prompt would not
+transfer to a script. Here it does, unchanged.
 
-The input reader is injected rather than taken from `stdin` directly, so prompt
-flows are driven by scripted transcripts in tests.
+A command that needs an argument and is given none asks for it rather than
+answering a person at a prompt with a usage error. `acquire` alone runs a guided
+walkthrough, previews it as a dry run, and prints the equivalent invocation once
+before transferring — the operator did not type that one, so the reproducible
+form has to come from somewhere. Commands the operator did type are not echoed
+back; the line they wrote is already that form.
+
+The shell refuses to start without a terminal, so a bare invocation in a pipe or
+a CI job is a usage error rather than a hang. The input reader is injected rather
+than taken from `stdin` directly, so the prompt flows are driven by scripted
+transcripts in tests.
 
 ## 🚧 The boundary that matters
 

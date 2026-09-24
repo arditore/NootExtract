@@ -114,14 +114,19 @@ Automated, on every run:
 - A metadata command that stops responding is terminated by the watchdog rather
   than blocking indefinitely; streaming is deliberately exempt.
 - Acquiring into a case directory that already holds another case is refused.
-- The guided session refuses to start without a terminal rather than hanging on a
-  prompt, and its menu, confirmation and validation flows are driven by scripted
-  transcripts: an out-of-range menu number is re-asked rather than falling
-  through to an operation, an unrecognised confirmation is re-asked rather than
-  assumed, an identifier the flag path rejects is rejected here too, and end of
-  input ends the session instead of looping.
-- Every printed command line quotes anything a shell would act on, so a pasted
-  command is the command that ran.
+- The interactive shell refuses to start without a terminal rather than hanging
+  on a prompt. Its line splitter, argument prompting, confirmation and validation
+  flows are driven by scripted transcripts: quoted paths with spaces survive
+  splitting, an unterminated quote is a usage error, an out-of-range menu number
+  is re-asked rather than falling through to an operation, an unrecognised
+  confirmation is re-asked rather than assumed, an identifier the flag path
+  rejects is rejected here too, and end of input closes the shell instead of
+  looping.
+- Every line typed at the prompt parses with the command-line definition, and an
+  unknown command is rejected by the same parser — so the shell cannot drift into
+  accepting something the flags do not.
+- The command printed after a guided acquisition parses back into the same
+  `acquire` arguments, and anything a shell would act on is quoted.
 - A device-controlled string cannot inject HTML into a case report, forge table
   columns with `|`, escape a code span with a backtick, or become a second table
   row through a line break. The payloads are fed in through the real path:
@@ -176,10 +181,11 @@ Stated explicitly so nothing here is mistaken for a compatibility claim:
   development environment, so `ewfacquire` and `ewfverify` were never invoked.
   Only the missing-tool and occupied-destination paths are covered by tests.
 - **No multi-gigabyte image was processed.** See the performance note below.
-- **The guided session has not been driven through a real terminal end to end.**
-  Its terminal guard and its prompt logic are covered by tests, but the visual
-  session — banner, menus, a full acquisition walkthrough — has only been
-  exercised through those tests, not by a person at a console.
+- **The interactive shell has not been driven through a real terminal end to
+  end.** Its terminal guard, line splitting, parsing and prompt logic are covered
+  by tests, but the visual session — banner, prompt, a full acquisition
+  walkthrough — has only been exercised through those tests. It cannot be
+  scripted, because the shell deliberately refuses non-terminal input.
 - **No performance measurement was made** on a multi-gigabyte image. Bounded
   memory use is a property of the code (fixed-size buffers, streaming I/O), not
   something measured here. The largest artifact exercised is a few megabytes.
