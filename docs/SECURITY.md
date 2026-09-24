@@ -127,6 +127,32 @@ built from untrusted data is reduced to `[A-Za-z0-9._-]`, has separator runs
 collapsed, leading dots and dashes stripped, is length-capped, and is rejected if
 it collides with a Windows reserved device name or reduces to nothing.
 
+### Report injection
+
+`nootextract report` renders device-controlled text — model and build strings,
+paths, archive entry names, the stderr behind every recorded error — into a
+Markdown document intended to be converted to HTML or PDF.
+
+Markdown does not execute anything by itself, but it permits inline HTML, which
+every HTML and PDF conversion honours. A device naming itself
+`<script>...</script>` would therefore have placed active content into an
+examiner's document. A `|` would have forged extra table columns, and a backtick
+would have escaped a code span.
+
+Every interpolated value is now escaped: `<`, `>` and `&` become entities, and
+`|`, backtick, `[`, `]`, `*`, `_` and `\` become numeric references. Line breaks
+fold to spaces so one field cannot become several table rows, and control
+characters are dropped so a report cannot repaint a terminal when it is read with
+`cat`. Untrusted values are never wrapped in code spans, because entities are not
+decoded inside one and a single backtick would break out.
+
+A tampered manifest is treated as the same class of input as a hostile device:
+the escaping happens at render time, so both are covered.
+
+This was found by review after the feature was written, not before. The earlier
+claim in the module documentation that Markdown "cannot execute anything" was
+wrong, and is corrected.
+
 ### Terminal and log injection
 
 Control characters — including ANSI escape sequences and newlines — are removed

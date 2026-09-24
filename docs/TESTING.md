@@ -122,6 +122,11 @@ Automated, on every run:
   input ends the session instead of looping.
 - Every printed command line quotes anything a shell would act on, so a pasted
   command is the command that ran.
+- A device-controlled string cannot inject HTML into a case report, forge table
+  columns with `|`, escape a code span with a backtick, or become a second table
+  row through a line break. The payloads are fed in through the real path:
+  `getprop` parsing, then `sanitize_device_string`, which strips control
+  characters but leaves Markdown and HTML metacharacters intact.
 - `doctor` reports rather than aborts: a missing `adb` is a failing check with a
   remedy, not an error exit, and every non-passing check carries a remedy.
 

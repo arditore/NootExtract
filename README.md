@@ -17,7 +17,7 @@
 [![CI](https://img.shields.io/badge/CI-linux%20%7C%20macos%20%7C%20windows-2b4c6f)](.github/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-2b4c6f)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-4a90a4)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-338%20passing-3f7f6f)](docs/TESTING.md)
+[![Tests](https://img.shields.io/badge/tests-347%20passing-3f7f6f)](docs/TESTING.md)
 [![unsafe](https://img.shields.io/badge/unsafe-forbidden-5a6b7c)](docs/SECURITY.md)
 
 </div>

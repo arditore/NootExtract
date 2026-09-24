@@ -7,8 +7,21 @@
 //!
 //! Markdown rather than HTML, deliberately: it is diffable, hashable, reviewable
 //! in a pull request, and convertible to HTML or PDF by whatever the lab already
-//! uses. It also cannot execute anything, which matters because much of its
-//! content is device-controlled text.
+//! uses.
+//!
+//! # Untrusted content
+//!
+//! Most of what appears here was chosen by the device: model and build strings
+//! from `getprop`, paths, archive entry names, the stderr behind every recorded
+//! error. A tampered manifest is a second source of the same kind.
+//!
+//! Markdown does not execute anything by itself, but it permits inline HTML, and
+//! this report exists to be converted to HTML or PDF. A device reporting its
+//! model as `<script>…</script>` would therefore put active content into an
+//! examiner's document. Pipes break table structure, and backticks escape a code
+//! span. Every interpolated value is consequently escaped through [`md`], and
+//! untrusted values are never wrapped in code spans: entities are not decoded
+//! inside one, so a single backtick in the content would break out of it.
 //!
 //! The report is derived, never authoritative. Nothing here is written into the
 //! case directory unless the operator asks for it.
@@ -95,7 +108,7 @@ fn render(
         if title.is_empty() {
             String::new()
         } else {
-            format!(" — {title}")
+            format!(" — {}", md(&title))
         }
     );
 
@@ -106,7 +119,11 @@ fn render(
         crate::NAME,
         crate::VERSION
     );
-    let _ = writeln!(out, "Case directory: `{}`\n", store.root().display());
+    let _ = writeln!(
+        out,
+        "Case directory: {}\n",
+        md(&store.root().display().to_string())
+    );
 
     if manifests.is_empty() {
         let _ = writeln!(
@@ -194,21 +211,22 @@ fn render_operations(out: &mut String, manifests: &[(std::path::PathBuf, Manifes
         let _ = writeln!(
             out,
             "### {} — {}\n",
-            operation.operation_id, operation.method
+            md(&operation.operation_id),
+            md(&operation.method)
         );
-        let _ = writeln!(out, "{}\n", operation.method_description);
+        let _ = writeln!(out, "{}\n", md(&operation.method_description));
 
         let _ = writeln!(out, "| Field | Value |");
         let _ = writeln!(out, "|---|---|");
-        let _ = writeln!(out, "| Manifest | `{}` |", file_name(path));
-        let _ = writeln!(out, "| Schema | {} |", manifest.manifest_version);
-        let _ = writeln!(out, "| Case | {} |", manifest.case.case_id);
-        let _ = writeln!(out, "| Evidence | {} |", manifest.case.evidence_id);
+        let _ = writeln!(out, "| Manifest | {} |", md(&file_name(path)));
+        let _ = writeln!(out, "| Schema | {} |", md(&manifest.manifest_version));
+        let _ = writeln!(out, "| Case | {} |", md(&manifest.case.case_id));
+        let _ = writeln!(out, "| Evidence | {} |", md(&manifest.case.evidence_id));
         if let Some(examiner) = &manifest.case.examiner {
-            let _ = writeln!(out, "| Examiner | {examiner} |");
+            let _ = writeln!(out, "| Examiner | {} |", md(examiner));
         }
         if let Some(notes) = &manifest.case.notes {
-            let _ = writeln!(out, "| Notes | {notes} |");
+            let _ = writeln!(out, "| Notes | {} |", md(notes));
         }
         let _ = writeln!(out, "| Status | **{}** |", operation.status);
         let _ = writeln!(out, "| Started | {} |", operation.started_at.to_rfc3339());
@@ -218,20 +236,23 @@ fn render_operations(out: &mut String, manifests: &[(std::path::PathBuf, Manifes
         if let Some(duration) = operation.duration_ms {
             let _ = writeln!(out, "| Duration | {duration} ms |");
         }
-        let _ = writeln!(out, "| Source | `{}` |", operation.source.source_id);
+        let _ = writeln!(out, "| Source | {} |", md(&operation.source.source_id));
         if let Some(source_path) = &operation.source.source_path {
-            let _ = writeln!(out, "| Scope | `{source_path}` |");
+            let _ = writeln!(out, "| Scope | {} |", md_path(source_path));
         }
         if let Some(command) = &operation.source.remote_command {
-            let _ = writeln!(out, "| Device command | `{}` |", command.join(" "));
+            let _ = writeln!(out, "| Device command | {} |", md(&command.join(" ")));
         }
         let _ = writeln!(
             out,
             "| Tool | {} {} on {}/{} |",
-            manifest.tool.name, manifest.tool.version, manifest.host.os, manifest.host.arch
+            md(&manifest.tool.name),
+            md(&manifest.tool.version),
+            md(&manifest.host.os),
+            md(&manifest.host.arch)
         );
         for (tool, version) in &manifest.tool.external_tools {
-            let _ = writeln!(out, "| External tool | `{tool}` — {version} |");
+            let _ = writeln!(out, "| External tool | {} — {} |", md(tool), md(version));
         }
         let _ = writeln!(out);
 
@@ -239,7 +260,7 @@ fn render_operations(out: &mut String, manifests: &[(std::path::PathBuf, Manifes
             let _ = writeln!(out, "**Device**\n");
             let _ = writeln!(out, "| Property | Value |");
             let _ = writeln!(out, "|---|---|");
-            let _ = writeln!(out, "| Serial | {} |", device.serial);
+            let _ = writeln!(out, "| Serial | {} |", md(&device.serial));
             for (label, value) in [
                 ("Manufacturer", &device.manufacturer),
                 ("Model", &device.model),
@@ -252,7 +273,7 @@ fn render_operations(out: &mut String, manifests: &[(std::path::PathBuf, Manifes
                 ("Userdata encryption", &device.crypto_state),
             ] {
                 if let Some(value) = value {
-                    let _ = writeln!(out, "| {label} | {value} |");
+                    let _ = writeln!(out, "| {label} | {} |", md(value));
                 }
             }
             if let Some(uid) = device.shell_uid {
@@ -264,7 +285,7 @@ fn render_operations(out: &mut String, manifests: &[(std::path::PathBuf, Manifes
         if !operation.parameters.is_empty() {
             let _ = writeln!(out, "**Parameters**\n");
             for (key, value) in &operation.parameters {
-                let _ = writeln!(out, "- `{key}` = `{value}`");
+                let _ = writeln!(out, "- {} = {}", md(key), md(value));
             }
             let _ = writeln!(out);
         }
@@ -321,8 +342,8 @@ fn render_artifacts(out: &mut String, manifests: &[(std::path::PathBuf, Manifest
     for artifact in &artifacts {
         let _ = writeln!(
             out,
-            "| `{}` | {} | {} | {} | {} | `{}` |",
-            artifact.path,
+            "| {} | {} | {} | {} | {} | {} |",
+            md_path(&artifact.path),
             artifact.classification,
             artifact.role.as_str(),
             format_bytes(artifact.size_bytes),
@@ -331,7 +352,7 @@ fn render_artifacts(out: &mut String, manifests: &[(std::path::PathBuf, Manifest
             } else {
                 "**INCOMPLETE**"
             },
-            artifact.hashes.sha256
+            md(&artifact.hashes.sha256)
         );
     }
     let _ = writeln!(out);
@@ -340,7 +361,7 @@ fn render_artifacts(out: &mut String, manifests: &[(std::path::PathBuf, Manifest
         let _ = writeln!(out, "**SHA-512**\n");
         for artifact in &artifacts {
             if let Some(sha512) = &artifact.hashes.sha512 {
-                let _ = writeln!(out, "- `{}`: `{sha512}`", artifact.path);
+                let _ = writeln!(out, "- {}: {}", md_path(&artifact.path), md(sha512));
             }
         }
         let _ = writeln!(out);
@@ -376,7 +397,7 @@ fn render_findings(out: &mut String, manifests: &[(std::path::PathBuf, Manifest)
     if !errors.is_empty() {
         let _ = writeln!(out, "### Errors\n");
         for (operation, error) in &errors {
-            let _ = writeln!(out, "- **{operation}**: {error}");
+            let _ = writeln!(out, "- **{}**: {}", md(operation), md(error));
         }
         let _ = writeln!(out);
     }
@@ -384,7 +405,7 @@ fn render_findings(out: &mut String, manifests: &[(std::path::PathBuf, Manifest)
     if !warnings.is_empty() {
         let _ = writeln!(out, "### Warnings\n");
         for (operation, warning) in &warnings {
-            let _ = writeln!(out, "- *{operation}*: {warning}");
+            let _ = writeln!(out, "- *{}*: {}", md(operation), md(warning));
         }
         let _ = writeln!(out);
     }
@@ -413,6 +434,48 @@ fn file_name(path: &Path) -> String {
         .and_then(|name| name.to_str())
         .unwrap_or("(unnamed)")
         .to_owned()
+}
+
+/// Escapes a value so it is inert wherever it lands in the document.
+///
+/// Three separate problems, all reachable from a device-controlled string:
+///
+/// * `<` and `>` open inline HTML, which most Markdown renderers pass through
+///   and every HTML or PDF conversion honours. These become entities.
+/// * `|` ends a table cell, letting one value forge extra columns or rows.
+/// * A backtick escapes a code span, and `[`, `]` and `*` restructure the text.
+///   These are backslash-escaped, which CommonMark renders literally.
+///
+/// Line breaks are folded to spaces so a single field cannot become several
+/// table rows. Control characters are dropped: they are invisible in the source
+/// and can repaint a terminal when the report is catted.
+fn md(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            // Ampersand first, so the entities emitted below are not re-escaped.
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '|' => out.push_str("&#124;"),
+            '`' => out.push_str("&#96;"),
+            '\\' => out.push_str("&#92;"),
+            '[' => out.push_str("&#91;"),
+            ']' => out.push_str("&#93;"),
+            '*' => out.push_str("&#42;"),
+            '_' => out.push_str("&#95;"),
+            '\n' | '\r' | '\t' => out.push(' '),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Escapes a path for display. Kept separate so the intent is visible at the
+/// call sites, which are the ones carrying archive entry names.
+fn md_path(path: &str) -> String {
+    md(path)
 }
 
 #[cfg(test)]
@@ -484,6 +547,260 @@ mod tests {
         let mut out = String::new();
         render(&mut out, store, &manifests, None);
         out
+    }
+
+    /// Builds a case whose device reported hostile identification strings.
+    ///
+    /// This is the realistic path: the values go through `getprop` parsing and
+    /// `sanitize_device_string` first, which strips control characters but
+    /// leaves Markdown and HTML metacharacters intact.
+    fn case_with_hostile_device(root: &Path, model: &str) -> EvidenceStore {
+        let store = EvidenceStore::create(root).unwrap();
+        let started = Utc::now();
+
+        let mut properties = std::collections::BTreeMap::new();
+        properties.insert("ro.product.model".to_owned(), model.to_owned());
+        properties.insert("ro.product.manufacturer".to_owned(), model.to_owned());
+
+        let mut manifest = Manifest::new(
+            CaseRecord {
+                case_id: "CASE-001".to_owned(),
+                evidence_id: "EV-1".to_owned(),
+                examiner: Some(model.to_owned()),
+                notes: Some(model.to_owned()),
+            },
+            OperationRecord {
+                operation_id: operation_id("acq", started),
+                method: "adb-logical-tar".to_owned(),
+                method_description: format!("Logical acquisition of {model}"),
+                source: SourceRecord {
+                    source_id: model.to_owned(),
+                    source_path: Some(model.to_owned()),
+                    remote_command: Some(vec!["tar".to_owned(), model.to_owned()]),
+                    reported_size_bytes: None,
+                },
+                started_at: started,
+                completed_at: Some(Utc::now()),
+                duration_ms: Some(1),
+                status: AcquisitionStatus::Completed,
+                parameters: Default::default(),
+            },
+        );
+        manifest.device = Some(crate::device::DeviceMetadata::from_properties(
+            model,
+            &properties,
+        ));
+        manifest.artifacts.push(ArtifactRecord {
+            path: format!("working/extracted/{model}"),
+            classification: EvidenceClass::Working,
+            role: ArtifactRole::ExtractedFile,
+            format: "file".to_owned(),
+            size_bytes: 1,
+            hashes: DigestSet {
+                sha256: "c".repeat(64),
+                sha512: None,
+            },
+            complete: true,
+            created_at: started,
+            derived_from: None,
+            segment_index: None,
+            notes: None,
+        });
+        manifest.warnings.push(format!("device said: {model}"));
+        manifest.errors.push(format!("device said: {model}"));
+        store.write_manifest(&manifest).unwrap();
+        store
+    }
+
+    #[test]
+    fn inline_html_from_the_device_never_reaches_the_report() {
+        // The report exists to be converted to HTML or PDF. A device that names
+        // itself with a script tag must not put active content into an
+        // examiner's document.
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            case_with_hostile_device(&dir.path().join("CASE-001"), "<script>alert(1)</script>");
+        let report = render_case(&store);
+
+        assert!(!report.contains("<script"), "raw HTML reached the report");
+        assert!(!report.contains("</script"), "raw HTML reached the report");
+        assert!(
+            !report.contains("alert(1)</"),
+            "the payload kept its closing tag"
+        );
+        // The value is still present, escaped, so the record is not falsified.
+        assert!(
+            report.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+            "{report}"
+        );
+
+        // The only angle brackets left are in the tool's own example command,
+        // inside a code span, where they are literal.
+        for line in report.lines().filter(|line| line.contains('<')) {
+            assert!(
+                line.contains("nootextract verify `<case>`") || line.contains("verify <case>"),
+                "unexpected raw angle bracket: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_image_onerror_payload_is_inert() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = case_with_hostile_device(
+            &dir.path().join("CASE-001"),
+            "<img src=x onerror=fetch(evil)>",
+        );
+        let report = render_case(&store);
+        assert!(!report.contains("<img"), "{report}");
+        assert!(!report.contains("onerror=fetch(evil)>"), "{report}");
+        assert!(
+            report.contains("&lt;img src=x onerror=fetch(evil)&gt;"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn a_pipe_cannot_forge_table_columns() {
+        // Every row of a two-column table must stay two columns, whatever the
+        // device called itself.
+        let dir = tempfile::tempdir().unwrap();
+        let store = case_with_hostile_device(&dir.path().join("CASE-001"), "Pixel | evil | extra");
+        let report = render_case(&store);
+
+        for line in report.lines() {
+            if line.starts_with("| Serial ") || line.starts_with("| Model ") {
+                assert_eq!(
+                    line.matches('|').count(),
+                    3,
+                    "a value forged extra columns: {line}"
+                );
+            }
+        }
+        assert!(report.contains("&#124;"), "the pipe was not escaped");
+    }
+
+    #[test]
+    fn a_backtick_cannot_escape_into_running_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = case_with_hostile_device(&dir.path().join("CASE-001"), "Pixel` # heading `x");
+        let report = render_case(&store);
+        assert!(report.contains("&#96;"), "the backtick was not escaped");
+        assert!(!report.contains("Pixel`"), "{report}");
+    }
+
+    #[test]
+    fn a_newline_cannot_become_a_second_table_row() {
+        // The device path strips control characters, but a hand-edited manifest
+        // is a second source for the same value.
+        let dir = tempfile::tempdir().unwrap();
+        let store = EvidenceStore::create(&dir.path().join("CASE-001")).unwrap();
+        let started = Utc::now();
+        let mut manifest = Manifest::new(
+            CaseRecord {
+                case_id: "CASE-001".to_owned(),
+                evidence_id: "EV-1".to_owned(),
+                examiner: Some("real\n| Status | **FORGED** |".to_owned()),
+                notes: None,
+            },
+            OperationRecord {
+                operation_id: operation_id("acq", started),
+                method: "m".to_owned(),
+                method_description: "d".to_owned(),
+                source: SourceRecord {
+                    source_id: "s".to_owned(),
+                    source_path: None,
+                    remote_command: None,
+                    reported_size_bytes: None,
+                },
+                started_at: started,
+                completed_at: Some(started),
+                duration_ms: Some(0),
+                status: AcquisitionStatus::Completed,
+                parameters: Default::default(),
+            },
+        );
+        manifest.artifacts.push(ArtifactRecord {
+            path: "original/a".to_owned(),
+            classification: EvidenceClass::Original,
+            role: ArtifactRole::LogicalArchive,
+            format: "tar".to_owned(),
+            size_bytes: 1,
+            hashes: DigestSet {
+                sha256: "d".repeat(64),
+                sha512: None,
+            },
+            complete: true,
+            created_at: started,
+            derived_from: None,
+            segment_index: None,
+            notes: None,
+        });
+        store.write_manifest(&manifest).unwrap();
+
+        let report = render_case(&store);
+        assert!(
+            !report.contains("**FORGED**"),
+            "a forged row survived: {report}"
+        );
+    }
+
+    #[test]
+    fn an_archive_entry_name_cannot_restructure_the_artifact_table() {
+        // Extraction records one artifact per archive entry, and entry names
+        // come from the device.
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            case_with_hostile_device(&dir.path().join("CASE-001"), "photo.jpg | 99 | forged");
+        let report = render_case(&store);
+
+        for line in report.lines() {
+            if line.starts_with("| working/") {
+                assert_eq!(
+                    line.matches('|').count(),
+                    7,
+                    "an entry name forged columns: {line}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn escaping_leaves_ordinary_text_readable() {
+        // Over-escaping would make every report unreadable, so the common case
+        // has to come through untouched.
+        assert_eq!(md("Pixel 7a"), "Pixel 7a");
+        assert_eq!(md("/storage/emulated/0"), "/storage/emulated/0");
+        assert_eq!(md("2026-01-02T03:04:05Z"), "2026-01-02T03:04:05Z");
+        assert_eq!(md("adb-logical-tar"), "adb-logical-tar");
+    }
+
+    #[test]
+    fn escaping_neutralises_every_structural_character() {
+        for (input, forbidden) in [
+            ("<b>", '<'),
+            ("a>b", '>'),
+            ("a|b", '|'),
+            ("a`b", '`'),
+            ("a[b]", '['),
+            ("a*b", '*'),
+            ("a_b", '_'),
+        ] {
+            let escaped = md(input);
+            assert!(
+                !escaped.contains(forbidden),
+                "`{input}` still contains `{forbidden}` after escaping: {escaped}"
+            );
+        }
+    }
+
+    #[test]
+    fn escaping_drops_control_characters_and_folds_line_breaks() {
+        assert_eq!(md("a\nb"), "a b");
+        assert_eq!(md("a\tb"), "a b");
+        assert_eq!(md("a\u{7}b"), "ab");
+        // An ANSI sequence must not survive into a report someone will `cat`.
+        assert!(!md("esc\u{1b}[31m").contains('\u{1b}'));
     }
 
     #[test]
